@@ -157,8 +157,13 @@ class ESLClient:
         return job_uuid, channel_uuid
 
     async def bridge_to_agent(self, call_uuid: str, extension: str) -> str:
-        """Transfer a parked call to an agent's extension."""
-        return await self.api(f"uuid_transfer {call_uuid} -both user/{extension}")
+        """Ring the agent and bridge them to the parked customer call.
+
+        originate user/{ext} &bridge({uuid}) is the correct FreeSWITCH
+        approach for predictive dialers — it rings the agent's SIP phone
+        and once they answer, connects them to the waiting customer.
+        """
+        return await self.api(f"originate user/{extension} &bridge({call_uuid})")
 
     async def hangup(self, call_uuid: str, cause: str = "NORMAL_CLEARING") -> str:
         return await self.api(f"uuid_kill {call_uuid} {cause}")
