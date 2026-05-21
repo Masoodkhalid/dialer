@@ -90,7 +90,6 @@ applications/mod_sms
 applications/mod_spandsp
 codecs/mod_g723_1
 codecs/mod_opus
-codecs/mod_siren
 dialplans/mod_dialplan_xml
 endpoints/mod_loopback
 endpoints/mod_sofia
