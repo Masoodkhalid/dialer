@@ -171,7 +171,9 @@ async def _global_on_background_job(event) -> None:
 
 async def _global_on_answer(event) -> None:
     fs_uuid = event.unique_id
+    logger.info("CHANNEL_ANSWER received fs_uuid=%s", fs_uuid)
     call = call_mgr.by_fs_uuid(fs_uuid)
+    logger.info("CHANNEL_ANSWER call lookup → %s", call.id if call else "NOT FOUND")
     if not call or call.campaign_id != "quick":
         return   # campaign calls handled by DialerEngine
     call = call_mgr.on_answered(fs_uuid)

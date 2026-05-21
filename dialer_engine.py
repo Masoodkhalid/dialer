@@ -252,8 +252,10 @@ class DialerEngine:
 
     async def _on_channel_answer(self, event: ESLEvent) -> None:
         fs_uuid = event.unique_id
+        logger.info("ENGINE CHANNEL_ANSWER fs_uuid=%s", fs_uuid)
         call = self.call_mgr.on_answered(fs_uuid)
         if not call:
+            logger.info("ENGINE CHANNEL_ANSWER: no call found for %s", fs_uuid)
             return
 
         self.campaign.stats.calls_answered += 1
