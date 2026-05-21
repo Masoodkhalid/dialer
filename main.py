@@ -485,18 +485,23 @@ async def hangup_call(call_id: str):
 
 
 @app.get("/recordings/{filename}")
-async def serve_recording(filename: str):
-    """Stream a call recording file."""
+async def serve_recording(filename: str, download: bool = False):
+    """Stream or download a call recording file.
+
+    Add ?download=true to get an attachment download instead of inline playback.
+    """
     # Security: only allow safe filenames (UUID + extension)
     import re
-    if not re.match(r'^[\w\-]+\.(wav|mp3)$', filename):
+    if not re.match(r'^[\w\-]+\.(wav|mp3|ogg)$', filename):
         raise HTTPException(400, "Invalid filename")
     path = os.path.join(settings.RECORDING_DIR, filename)
     if not os.path.exists(path):
         raise HTTPException(404, "Recording not found")
-    mt = "audio/wav" if filename.endswith(".wav") else "audio/mpeg"
+    mt = "audio/mpeg" if filename.endswith(".mp3") else (
+         "audio/ogg"  if filename.endswith(".ogg") else "audio/wav")
+    disposition = "attachment" if download else "inline"
     return FileResponse(path, media_type=mt, headers={
-        "Content-Disposition": f'inline; filename="{filename}"'
+        "Content-Disposition": f'{disposition}; filename="{filename}"'
     })
 
 
