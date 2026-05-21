@@ -88,8 +88,12 @@ class CallManager:
 
         if call.status in (CallStatus.DIALING, CallStatus.RINGING, CallStatus.ANSWERED, CallStatus.AMD_CHECK):
             call.status = CallStatus.DROPPED
+            if not call.disposition:
+                call.disposition = "no-answer"
         else:
             call.status = CallStatus.COMPLETED
+            if not call.disposition:
+                call.disposition = "answered"
         return call
 
     def on_failed(self, job_uuid: str, reason: str = "") -> Optional[Call]:

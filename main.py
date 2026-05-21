@@ -179,6 +179,16 @@ async def _global_on_answer(event) -> None:
     call = call_mgr.on_answered(fs_uuid)
     if not call:
         return
+    # Start recording
+    if settings.RECORDING_ENABLED and call.fs_uuid:
+        rec_file = f"{settings.RECORDING_DIR}/{call.id}.{settings.RECORDING_FORMAT}"
+        try:
+            await esl.api(f"uuid_record {call.fs_uuid} start {rec_file}")
+            call.recording_path = f"{call.id}.{settings.RECORDING_FORMAT}"
+            logger.info("Recording started: %s", rec_file)
+        except Exception as exc:
+            logger.warning("Recording start failed: %s", exc)
+
     idle = agent_mgr.get_idle()
     if idle:
         agent = idle[0]
