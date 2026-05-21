@@ -552,11 +552,15 @@ async def admin_ws(ws: WebSocket):
     await ws.accept()
     admin_ws_clients.append(ws)
 
-    # Send current snapshot
+    # Send current snapshot including call history
+    terminal = {CallStatus.COMPLETED, CallStatus.FAILED, CallStatus.DROPPED}
+    history = [c.model_dump() for c in call_mgr.all_calls()
+               if c.status in terminal]
     snapshot = {
-        "agents": [a.model_dump() for a in agent_mgr.list_all()],
-        "campaigns": [c.model_dump(exclude={"contacts"}) for c in campaigns.values()],
+        "agents":       [a.model_dump() for a in agent_mgr.list_all()],
+        "campaigns":    [c.model_dump(exclude={"contacts"}) for c in campaigns.values()],
         "active_calls": [c.model_dump() for c in call_mgr.active()],
+        "history":      history[-200:],   # last 200 calls
     }
     await ws.send_text(json.dumps({"type": "snapshot", "data": snapshot}, default=_json_default))
 

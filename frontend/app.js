@@ -74,6 +74,9 @@ function handleMsg(type, data) {
       data.agents.forEach(a => (state.agents[a.id] = a));
       data.campaigns.forEach(c => (state.campaigns[c.id] = c));
       data.active_calls.forEach(c => (state.activeCalls[c.id] = c));
+      if (data.history) {
+        state.history = data.history.slice().reverse();
+      }
       refreshAll(); break;
 
     case 'agent_update':
