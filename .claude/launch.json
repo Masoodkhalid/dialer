@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "demo",
+      "runtimeExecutable": "/Users/masoodkhalid/Projects/freeswitch/.venv/bin/python",
+      "runtimeArgs": ["demo.py"],
+      "port": 8000
+    },
+    {
+      "name": "dialer",
+      "runtimeExecutable": "/Users/masoodkhalid/Projects/freeswitch/.venv/bin/python",
+      "runtimeArgs": ["run.py"],
+      "port": 8000
+    }
+  ]
+}

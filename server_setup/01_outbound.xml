@@ -1,0 +1,23 @@
+<!--
+  FreeSWITCH Outbound Dialplan
+  Save on server at: /etc/freeswitch/dialplan/default/01_outbound.xml
+
+  Matches your VICIdial logic:
+    Asterisk: Dial(SIP/telcastc/4164#${EXTEN:5}, ...)
+    FreeSWITCH: bridge sofia/gateway/telcastc/4164#<number>
+
+  The prefix "4164#" is your carrier route code — required by Telcast.
+-->
+<include>
+  <extension name="outbound_telcastc">
+    <!-- Match any 10 or 11-digit number (US/Canada format) -->
+    <condition field="destination_number" expression="^(\+?1?(\d{10}))$">
+      <action application="set"    data="effective_caller_id_number=${outbound_caller_id_number}"/>
+      <action application="set"    data="effective_caller_id_name=${outbound_caller_id_name}"/>
+      <action application="set"    data="call_timeout=30"/>
+      <action application="set"    data="hangup_after_bridge=true"/>
+      <!-- Send with 4164# prefix exactly like VICIdial does -->
+      <action application="bridge" data="sofia/gateway/telcastc/4164#1$2"/>
+    </condition>
+  </extension>
+</include>

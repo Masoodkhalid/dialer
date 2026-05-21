@@ -1,0 +1,21 @@
+<!--
+  Gateway: Telcast (IP-authenticated trunk)
+  Save this file on your FreeSWITCH server at:
+  /etc/freeswitch/sip_profiles/external/telcastc.xml
+
+  NOTE: gateway name is "telcastc" (with c) — matches your VICIdial SIP/telcastc channel
+-->
+<include>
+  <gateway name="telcastc">
+    <!-- IP-based peer — no username/password, authenticated by server IP -->
+    <param name="username"            value="telcastc"/>
+    <param name="realm"               value="88.88.88.88"/>
+    <param name="proxy"               value="88.88.88.88"/>
+    <param name="remote-network-addr" value="88.88.88.88"/>
+    <param name="register"            value="false"/>
+    <param name="caller-id-in-from"   value="true"/>
+    <param name="ping"                value="30"/>
+    <param name="codec-prefs"         value="PCMA,PCMU"/>
+    <param name="dtmf-type"           value="rfc2833"/>
+  </gateway>
+</include>

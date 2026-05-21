@@ -1,0 +1,429 @@
+"""
+AI-Powered Predictive Dialer — FastAPI application
+────────────────────────────────────────────────────
+REST API + WebSocket dashboard backed by FreeSWITCH ESL and Claude AI.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import csv
+import io
+import json
+import logging
+import os
+from contextlib import asynccontextmanager
+from typing import Dict, List, Optional
+
+from fastapi import FastAPI, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+
+from agent_manager import AgentManager
+from ai_analyzer import AIAnalyzer
+from call_manager import CallManager
+from config import settings
+from dialer_engine import DialerEngine
+from esl_client import ESLClient
+from models import (
+    Agent,
+    AgentCreate,
+    AgentDisposition,
+    AgentLogin,
+    Campaign,
+    CampaignCreate,
+    CampaignStatus,
+    Contact,
+    WSMessage,
+)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+# ── Singletons ─────────────────────────────────────────────────────────────────
+
+esl = ESLClient(settings.FS_HOST, settings.FS_PORT, settings.FS_PASSWORD)
+agent_mgr = AgentManager(wrap_up_seconds=settings.WRAP_UP_TIME)
+call_mgr = CallManager()
+ai = AIAnalyzer(api_key=settings.ANTHROPIC_API_KEY, model=settings.CLAUDE_MODEL)
+
+campaigns: Dict[str, Campaign] = {}
+engines: Dict[str, DialerEngine] = {}
+admin_ws_clients: List[WebSocket] = []
+
+
+# ── WebSocket broadcast ────────────────────────────────────────────────────────
+
+async def broadcast(event_type: str, data) -> None:
+    msg = json.dumps({"type": event_type, "data": data})
+    dead = []
+    for ws in admin_ws_clients:
+        try:
+            await ws.send_text(msg)
+        except Exception:
+            dead.append(ws)
+    for ws in dead:
+        admin_ws_clients.remove(ws)
+
+
+async def on_dialer_event(event_type: str, data: dict) -> None:
+    await broadcast(event_type, data)
+
+    # Post-call AI analysis when a call ends with an agent
+    if event_type == "call_ended":
+        call_id = data.get("id")
+        call = call_mgr.get(call_id)
+        if call and call.agent_id and call.duration and settings.ANTHROPIC_API_KEY:
+            asyncio.create_task(_run_ai_analysis(call_id))
+
+
+async def _run_ai_analysis(call_id: str) -> None:
+    call = call_mgr.get(call_id)
+    if not call:
+        return
+    try:
+        summary, sentiment = await ai.analyze_call(
+            contact_name=call.contact.name,
+            contact_phone=call.contact.phone,
+            duration_seconds=call.duration or 0,
+            disposition=call.disposition,
+        )
+        call_mgr.set_ai_analysis(call_id, summary, sentiment)
+        await broadcast("call_ai_analysis", {
+            "call_id": call_id,
+            "summary": summary,
+            "sentiment": sentiment,
+        })
+    except Exception as exc:
+        logger.error("AI analysis failed: %s", exc)
+
+
+# ── Agent change hook ──────────────────────────────────────────────────────────
+
+async def _on_agent_change(agent: Agent) -> None:
+    await broadcast("agent_update", agent.model_dump())
+
+
+agent_mgr.on_change(_on_agent_change)
+
+
+# ── App startup / shutdown ─────────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        await esl.connect()
+        await esl.subscribe(
+            "CHANNEL_CREATE",
+            "CHANNEL_ANSWER",
+            "CHANNEL_HANGUP",
+            "CHANNEL_BRIDGE",
+            "CHANNEL_UNBRIDGE",
+            "BACKGROUND_JOB",
+            "CUSTOM",
+        )
+        logger.info("FreeSWITCH ESL ready")
+    except Exception as exc:
+        logger.warning("Could not connect to FreeSWITCH ESL: %s", exc)
+        logger.warning("Running without ESL — use mock mode for testing")
+
+    yield
+
+    await esl.disconnect()
+
+
+app = FastAPI(title="AI Predictive Dialer", version="1.0.0", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory="frontend"), name="static")
+
+
+# ── Dashboard root ─────────────────────────────────────────────────────────────
+
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    with open("frontend/index.html") as f:
+        return f.read()
+
+
+# ── Campaign endpoints ─────────────────────────────────────────────────────────
+
+@app.post("/campaigns", response_model=Campaign)
+async def create_campaign(body: CampaignCreate):
+    c = Campaign(name=body.name)
+    campaigns[c.id] = c
+    return c
+
+
+@app.get("/campaigns", response_model=List[Campaign])
+async def list_campaigns():
+    return list(campaigns.values())
+
+
+@app.get("/campaigns/{campaign_id}", response_model=Campaign)
+async def get_campaign(campaign_id: str):
+    c = campaigns.get(campaign_id)
+    if not c:
+        raise HTTPException(404, "Campaign not found")
+    return c
+
+
+@app.post("/campaigns/{campaign_id}/upload")
+async def upload_contacts(campaign_id: str, file: UploadFile):
+    c = campaigns.get(campaign_id)
+    if not c:
+        raise HTTPException(404, "Campaign not found")
+
+    content = await file.read()
+    reader = csv.DictReader(io.StringIO(content.decode("utf-8-sig")))
+    added = 0
+    for row in reader:
+        phone = row.get("phone") or row.get("Phone") or row.get("PHONE")
+        if not phone:
+            continue
+        contact = Contact(
+            phone=phone.strip(),
+            name=(row.get("name") or row.get("Name") or "").strip() or None,
+            email=(row.get("email") or row.get("Email") or "").strip() or None,
+        )
+        c.contacts.append(contact)
+        added += 1
+
+    c.stats.contacts_total = len(c.contacts)
+    c.stats.contacts_remaining = len(c.contacts)
+    return {"added": added, "total": len(c.contacts)}
+
+
+@app.post("/campaigns/{campaign_id}/reset")
+async def reset_campaign(campaign_id: str):
+    """Mark all contacts as un-dialed and clear stats so the list can be run again."""
+    c = campaigns.get(campaign_id)
+    if not c:
+        raise HTTPException(404, "Campaign not found")
+
+    # Stop the engine if it's running
+    engine = engines.get(campaign_id)
+    if engine:
+        await engine.stop()
+        engines.pop(campaign_id, None)
+
+    # Un-dial every contact
+    for contact in c.contacts:
+        contact.dialed = False
+        contact.dialed_at = None
+        contact.result = None
+
+    # Clear all stats
+    from models import CampaignStats
+    c.stats = CampaignStats(
+        contacts_total=len(c.contacts),
+        contacts_remaining=len(c.contacts),
+    )
+    c.status = CampaignStatus.IDLE
+    c.started_at = None
+    c.completed_at = None
+
+    await broadcast("campaign_reset", {
+        "id": c.id,
+        "name": c.name,
+        "status": c.status,
+        "stats": c.stats.model_dump(),
+    })
+    return {"status": "reset", "contacts": len(c.contacts)}
+
+
+@app.post("/campaigns/{campaign_id}/start")
+async def start_campaign(campaign_id: str):
+    c = campaigns.get(campaign_id)
+    if not c:
+        raise HTTPException(404, "Campaign not found")
+    if not c.contacts:
+        raise HTTPException(400, "No contacts loaded")
+
+    engine = DialerEngine(
+        esl=esl,
+        agent_mgr=agent_mgr,
+        call_mgr=call_mgr,
+        campaign=c,
+        gateway=settings.SIP_GATEWAY,
+        caller_id=settings.CALLER_ID_NUMBER,
+        dial_prefix=settings.DIAL_PREFIX,
+        dial_timeout=settings.DIAL_TIMEOUT,
+        max_concurrent=settings.MAX_CONCURRENT_CALLS,
+        drop_rate_limit=settings.DROP_RATE_LIMIT,
+        pacing_interval=settings.PACING_INTERVAL,
+        amd_enabled=settings.AMD_ENABLED,
+        recording_enabled=settings.RECORDING_ENABLED,
+        recording_dir=settings.RECORDING_DIR,
+        recording_format=settings.RECORDING_FORMAT,
+        on_event=on_dialer_event,
+    )
+    engines[campaign_id] = engine
+    await engine.start()
+    return {"status": "running"}
+
+
+@app.post("/campaigns/{campaign_id}/pause")
+async def pause_campaign(campaign_id: str):
+    engine = engines.get(campaign_id)
+    if not engine:
+        raise HTTPException(404, "Campaign not running")
+    await engine.pause()
+    return {"status": "paused"}
+
+
+@app.post("/campaigns/{campaign_id}/resume")
+async def resume_campaign(campaign_id: str):
+    engine = engines.get(campaign_id)
+    if not engine:
+        raise HTTPException(404, "Campaign not running")
+    await engine.resume()
+    return {"status": "running"}
+
+
+@app.post("/campaigns/{campaign_id}/stop")
+async def stop_campaign(campaign_id: str):
+    engine = engines.get(campaign_id)
+    if not engine:
+        raise HTTPException(404, "Campaign not running")
+    await engine.stop()
+    engines.pop(campaign_id, None)
+    return {"status": "stopped"}
+
+
+# ── Agent endpoints ────────────────────────────────────────────────────────────
+
+@app.post("/agents", response_model=Agent)
+async def create_agent(body: AgentCreate):
+    agent = Agent(name=body.name, extension=body.extension)
+    agent_mgr.register(agent)
+    return agent
+
+
+@app.get("/agents", response_model=List[Agent])
+async def list_agents():
+    return agent_mgr.list_all()
+
+
+@app.post("/agents/login")
+async def agent_login(body: AgentLogin):
+    ok = await agent_mgr.login(body.agent_id)
+    if not ok:
+        raise HTTPException(404, "Agent not found")
+    return {"status": "idle"}
+
+
+@app.post("/agents/logout")
+async def agent_logout(body: AgentLogin):
+    await agent_mgr.logout(body.agent_id)
+    return {"status": "offline"}
+
+
+@app.post("/agents/break")
+async def agent_break(body: AgentLogin):
+    ok = await agent_mgr.set_break(body.agent_id)
+    if not ok:
+        raise HTTPException(400, "Cannot set break from current status")
+    return {"status": "break"}
+
+
+@app.post("/agents/return")
+async def agent_return(body: AgentLogin):
+    ok = await agent_mgr.return_from_break(body.agent_id)
+    if not ok:
+        raise HTTPException(400, "Agent is not on break")
+    return {"status": "idle"}
+
+
+# ── Call endpoints ─────────────────────────────────────────────────────────────
+
+@app.get("/calls")
+async def list_calls():
+    return [c.model_dump() for c in call_mgr.all_calls()]
+
+
+@app.get("/recordings/{filename}")
+async def serve_recording(filename: str):
+    """Stream a call recording file."""
+    # Security: only allow safe filenames (UUID + extension)
+    import re
+    if not re.match(r'^[\w\-]+\.(wav|mp3)$', filename):
+        raise HTTPException(400, "Invalid filename")
+    path = os.path.join(settings.RECORDING_DIR, filename)
+    if not os.path.exists(path):
+        raise HTTPException(404, "Recording not found")
+    mt = "audio/wav" if filename.endswith(".wav") else "audio/mpeg"
+    return FileResponse(path, media_type=mt, headers={
+        "Content-Disposition": f'inline; filename="{filename}"'
+    })
+
+
+@app.post("/calls/disposition")
+async def set_disposition(body: AgentDisposition):
+    call = call_mgr.set_disposition(body.call_id, body.disposition,
+                                    body.notes or "")
+    if not call:
+        raise HTTPException(404, "Call not found")
+    await broadcast("call_disposition", {"call_id": call.id,
+                                          "disposition": call.disposition})
+    return {"status": "ok"}
+
+
+@app.post("/calls/{call_id}/ai-script")
+async def get_ai_script(call_id: str):
+    call = call_mgr.get(call_id)
+    if not call:
+        raise HTTPException(404, "Call not found")
+    script = await ai.generate_script_suggestion(
+        contact_name=call.contact.name,
+        product="our service",
+    )
+    return {"script": script}
+
+
+# ── WebSocket ──────────────────────────────────────────────────────────────────
+
+@app.websocket("/ws")
+async def admin_ws(ws: WebSocket):
+    await ws.accept()
+    admin_ws_clients.append(ws)
+
+    # Send current snapshot
+    snapshot = {
+        "agents": [a.model_dump() for a in agent_mgr.list_all()],
+        "campaigns": [c.model_dump(exclude={"contacts"}) for c in campaigns.values()],
+        "active_calls": [c.model_dump() for c in call_mgr.active()],
+    }
+    await ws.send_text(json.dumps({"type": "snapshot", "data": snapshot}))
+
+    try:
+        while True:
+            await ws.receive_text()   # keep-alive; client can send pings
+    except WebSocketDisconnect:
+        admin_ws_clients.remove(ws)
+
+
+@app.websocket("/ws/agent/{agent_id}")
+async def agent_ws(ws: WebSocket, agent_id: str):
+    """Individual agent WebSocket for call assignments and push messages."""
+    await ws.accept()
+    q = agent_mgr.attach_ws_queue(agent_id)
+
+    async def reader():
+        try:
+            while True:
+                await ws.receive_text()
+        except WebSocketDisconnect:
+            pass
+
+    async def writer():
+        while True:
+            msg = await q.get()
+            try:
+                await ws.send_text(json.dumps(msg))
+            except Exception:
+                break
+
+    await asyncio.gather(reader(), writer(), return_exceptions=True)
+    agent_mgr.detach_ws_queue(agent_id)
