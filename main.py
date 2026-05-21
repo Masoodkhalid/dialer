@@ -119,6 +119,65 @@ async def _on_agent_change(agent: Agent) -> None:
 agent_mgr.on_change(_on_agent_change)
 
 
+# ── Global ESL handlers (handle quick-dial + any unattached calls) ─────────────
+
+async def _global_on_background_job(event) -> None:
+    job_uuid = event.job_uuid
+    body = event.get("body", "").strip()
+    call = call_mgr.by_job_uuid(job_uuid)
+    if not call:
+        return
+    if body.startswith("+OK"):
+        fs_uuid = body.split()[-1]
+        call_mgr.set_fs_uuid(call.id, fs_uuid)
+    else:
+        call_mgr.on_failed(job_uuid, body)
+        await broadcast("call_failed", {"call_id": call.id, "reason": body})
+        await broadcast("call_ended", call.model_dump())
+
+
+async def _global_on_answer(event) -> None:
+    fs_uuid = event.unique_id
+    call = call_mgr.on_answered(fs_uuid)
+    if not call:
+        return
+    # Bridge to an idle agent if available
+    idle = agent_mgr.get_idle()
+    if idle:
+        agent = idle[0]
+        await agent_mgr.assign_call(agent.id, call.id)
+        call.agent_id = agent.id
+        try:
+            await esl.bridge_to_agent(call.fs_uuid, agent.extension)
+            logger.info("Quick-dial bridged %s → agent %s", call.contact.phone, agent.extension)
+        except Exception as exc:
+            logger.error("Bridge failed: %s", exc)
+            await agent_mgr.release_call(agent.id)
+            call.agent_id = None
+    else:
+        logger.warning("Quick-dial: no idle agent for %s — dropping", call.contact.phone)
+        if call.fs_uuid:
+            await esl.hangup(call.fs_uuid)
+        call.status = CallStatus.DROPPED
+    await broadcast("call_answered", call.model_dump())
+
+
+async def _global_on_hangup(event) -> None:
+    fs_uuid = event.unique_id
+    cause = event.get("Hangup-Cause", "")
+    call = call_mgr.on_hangup(fs_uuid, cause)
+    if not call:
+        return
+    if call.agent_id:
+        await agent_mgr.release_call(call.agent_id)
+    await broadcast("call_ended", call.model_dump())
+
+
+esl.add_handler("BACKGROUND_JOB", _global_on_background_job)
+esl.add_handler("CHANNEL_ANSWER",  _global_on_answer)
+esl.add_handler("CHANNEL_HANGUP",  _global_on_hangup)
+
+
 # ── App startup / shutdown ─────────────────────────────────────────────────────
 
 @asynccontextmanager
