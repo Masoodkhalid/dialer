@@ -28,6 +28,7 @@ os.environ.setdefault("FS_PASSWORD", "DemoPass")
 os.environ.setdefault("PACING_INTERVAL", "3.0")
 os.environ.setdefault("MAX_CONCURRENT_CALLS", "5")
 os.environ.setdefault("AMD_ENABLED", "false")
+os.environ.setdefault("RECORDING_ENABLED", "false")  # no real FS in demo — files won't exist
 
 import httpx
 import uvicorn

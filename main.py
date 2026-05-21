@@ -208,6 +208,9 @@ async def reset_campaign(campaign_id: str):
         await engine.stop()
         engines.pop(campaign_id, None)
 
+    # Release all agents back to idle immediately so next Start works right away
+    await agent_mgr.release_all_to_idle()
+
     # Un-dial every contact
     for contact in c.contacts:
         contact.dialed = False

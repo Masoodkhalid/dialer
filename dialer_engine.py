@@ -148,13 +148,19 @@ class DialerEngine:
                 await self._maybe_dial()
             except Exception as exc:
                 logger.error("Pacing error: %s", exc, exc_info=True)
-            await asyncio.sleep(self.pacing_interval)
 
-        # Campaign completed when queue is empty and no active calls remain
-        if not self._contact_queue and self.call_mgr.active_count() == 0:
-            self.campaign.status = CampaignStatus.COMPLETED
-            self.campaign.completed_at = datetime.utcnow()
-            await self._emit("campaign_completed", self.campaign.stats.model_dump())
+            # Check completion INSIDE the loop — all contacts dialed + no active calls
+            if not self._contact_queue and self.call_mgr.active_count() == 0:
+                self.campaign.status = CampaignStatus.COMPLETED
+                self.campaign.completed_at = datetime.utcnow()
+                await self._emit("campaign_completed", {
+                    "id":     self.campaign.id,
+                    "status": self.campaign.status,
+                    "stats":  self.campaign.stats.model_dump(),
+                })
+                break
+
+            await asyncio.sleep(self.pacing_interval)
 
     async def _maybe_dial(self) -> None:
         if not self._contact_queue:
@@ -363,6 +369,12 @@ class DialerEngine:
         if dialed > 0:
             s.answer_rate = s.calls_answered / dialed
             s.drop_rate = s.calls_dropped / dialed
+        # Push live stats to dashboard
+        asyncio.create_task(self._emit("campaign_update", {
+            "id":     self.campaign.id,
+            "status": self.campaign.status,
+            "stats":  self.campaign.stats.model_dump(),
+        }))
 
     async def _emit(self, event_type: str, data: dict) -> None:
         if self._on_event:

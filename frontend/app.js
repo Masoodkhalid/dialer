@@ -82,7 +82,21 @@ function handleMsg(type, data) {
     case 'campaign_started': case 'campaign_paused':
     case 'campaign_resumed': case 'campaign_stopped':
     case 'campaign_completed': case 'campaign_reset':
-      if (state.campaigns[data.id]) Object.assign(state.campaigns[data.id], data);
+      if (state.campaigns[data.id]) {
+        Object.assign(state.campaigns[data.id], data);
+        // Merge nested stats if present
+        if (data.stats) state.campaigns[data.id].stats = data.stats;
+      }
+      populateCampaignSelect();
+      if (state.currentCampaignId === data.id) refreshStatsBar();
+      break;
+
+    // Live stats push — fires on every dial/answer/drop
+    case 'campaign_update':
+      if (state.campaigns[data.id]) {
+        state.campaigns[data.id].status = data.status;
+        if (data.stats) state.campaigns[data.id].stats = data.stats;
+      }
       populateCampaignSelect();
       if (state.currentCampaignId === data.id) refreshStatsBar();
       break;
@@ -187,14 +201,18 @@ async function resetCampaign() {
   const c = state.campaigns[id];
   const total = c?.stats?.contacts_total ?? 0;
   if (!confirm(`Reset all ${total} contacts as un-dialed and clear stats?\n\nAfter reset, click ▶ Start to dial the same list again.`)) return;
-  const res = await api('POST', `/campaigns/${id}/reset`);
-  Object.assign(state.campaigns[id], await api('GET', `/campaigns/${id}`));
-  populateCampaignSelect();
-  refreshStatsBar();
-  // Also clear history entries belonging to this campaign
-  state.history = state.history.filter(c => c.campaign_id !== id);
-  renderHistory();
-  alert(`✓ Reset complete — ${res.contacts} contacts ready to dial again. Click ▶ Start when ready.`);
+  try {
+    const res = await api('POST', `/campaigns/${id}/reset`);
+    Object.assign(state.campaigns[id], await api('GET', `/campaigns/${id}`));
+    populateCampaignSelect();
+    refreshStatsBar();
+    // Also clear history entries belonging to this campaign
+    state.history = state.history.filter(c => c.campaign_id !== id);
+    renderHistory();
+    alert(`✓ Reset complete — ${res.contacts} contacts ready to dial again. Click ▶ Start when ready.`);
+  } catch (err) {
+    alert('Reset failed: ' + err.message);
+  }
 }
 
 async function campAction(action) {

@@ -9,9 +9,9 @@
   <gateway name="telcastc">
     <!-- IP-based peer — no username/password, authenticated by server IP -->
     <param name="username"            value="telcastc"/>
-    <param name="realm"               value="88.88.88.88"/>
-    <param name="proxy"               value="88.88.88.88"/>
-    <param name="remote-network-addr" value="88.88.88.88"/>
+    <param name="realm"               value="88.151.132.84"/>
+    <param name="proxy"               value="88.151.132.84"/>
+    <param name="remote-network-addr" value="88.151.132.84"/>
     <param name="register"            value="false"/>
     <param name="caller-id-in-from"   value="true"/>
     <param name="ping"                value="30"/>

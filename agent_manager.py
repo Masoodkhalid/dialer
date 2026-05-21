@@ -61,6 +61,20 @@ class AgentManager:
         await self._notify_change(agent)
         return True
 
+    async def release_all_to_idle(self) -> None:
+        """Immediately move all wrap_up / on_call agents back to idle.
+        Called on campaign reset so the next campaign starts with agents ready."""
+        for agent in self._agents.values():
+            if agent.status in (AgentStatus.WRAP_UP, AgentStatus.ON_CALL):
+                # Cancel pending wrap-up timer
+                task = self._wrap_up_tasks.pop(agent.id, None)
+                if task:
+                    task.cancel()
+                agent.status = AgentStatus.IDLE
+                agent.current_call_id = None
+                await self._notify_change(agent)
+                logger.info("Reset: agent %s → idle", agent.name)
+
     async def release_call(self, agent_id: str) -> None:
         agent = self._agents.get(agent_id)
         if not agent:
