@@ -127,12 +127,25 @@ class ESLClient:
 
     async def originate(self, phone: str, gateway: str, caller_id: str,
                         timeout: int = 30) -> str:
-        """Originate an outbound call, park it on answer.  Returns Job-UUID."""
+        """Originate an outbound call, park it on answer.  Returns Job-UUID.
+
+        If `gateway` looks like an IP address (e.g. '88.151.132.84') the call
+        is sent directly to that SIP host — no gateway registration required
+        (IP-authenticated carrier).  Otherwise a named FreeSWITCH gateway is used.
+        """
+        import re
+        if re.match(r"^\d{1,3}(\.\d{1,3}){3}", gateway):
+            # Direct IP dialing — works with IP-authenticated carriers
+            endpoint = f"sofia/external/{phone}@{gateway}"
+        else:
+            # Named gateway (must be registered in FreeSWITCH sofia profile)
+            endpoint = f"sofia/gateway/{gateway}/{phone}"
+
         dial = (
             f"{{originate_timeout={timeout},"
             f"ignore_early_media=true,"
             f"origination_caller_id_number={caller_id}}}"
-            f"sofia/gateway/{gateway}/{phone}"
+            f"{endpoint}"
         )
         return await self.bgapi(f"originate {dial} &park()")
 
