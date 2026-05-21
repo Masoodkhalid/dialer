@@ -224,6 +224,15 @@ async function campAction(action) {
   refreshStatsBar();
 }
 
+// ── Hangup ────────────────────────────────────────────────────────────────────
+async function hangupCall(callId) {
+  try {
+    await api('POST', `/calls/${callId}/hangup`);
+  } catch(e) {
+    alert('Hangup failed: ' + e.message);
+  }
+}
+
 // ── Quick Dial ─────────────────────────────────────────────────────────────────
 async function quickDial() {
   const num = document.getElementById('quick-number').value.trim();
@@ -330,7 +339,8 @@ function renderActiveCalls() {
       <td>${agName}</td>
       <td style="font-variant-numeric:tabular-nums">${liveDuration(c.answer_time)}</td>
       <td>${c.amd_result ?? '—'}</td>
-      <td>${c.disposition ?? '—'}</td>`;
+      <td>${c.disposition ?? '—'}</td>
+      <td><button class="btn btn-red" style="padding:2px 10px;font-size:11px" onclick="hangupCall('${c.id}')">✕ End</button></td>`;
     tbody.appendChild(tr);
   });
 }

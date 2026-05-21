@@ -414,6 +414,18 @@ async def list_calls():
     return [c.model_dump() for c in call_mgr.all_calls()]
 
 
+@app.post("/calls/{call_id}/hangup")
+async def hangup_call(call_id: str):
+    """Hang up an active call from the dashboard."""
+    call = call_mgr.get(call_id)
+    if not call:
+        raise HTTPException(404, "Call not found")
+    if not call.fs_uuid:
+        raise HTTPException(400, "Call has no FreeSWITCH UUID yet")
+    await esl.hangup(call.fs_uuid)
+    return {"status": "hangup sent"}
+
+
 @app.get("/recordings/{filename}")
 async def serve_recording(filename: str):
     """Stream a call recording file."""
