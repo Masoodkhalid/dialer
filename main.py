@@ -25,6 +25,7 @@ from call_manager import CallManager
 from config import settings
 from dialer_engine import DialerEngine
 from esl_client import ESLClient
+import storage
 from models import (
     Agent,
     AgentCreate,
@@ -55,6 +56,34 @@ ai = AIAnalyzer(api_key=settings.ANTHROPIC_API_KEY, model=settings.CLAUDE_MODEL)
 campaigns: Dict[str, Campaign] = {}
 engines: Dict[str, DialerEngine] = {}
 admin_ws_clients: List[WebSocket] = []
+
+
+def _save() -> None:
+    """Persist current state to disk."""
+    storage.save(agent_mgr.list_all(), campaigns, call_mgr.all_calls())
+
+
+def _load_persisted() -> None:
+    """Restore agents, campaigns and call history from disk on startup."""
+    data = storage.load()
+    if not data:
+        return
+    try:
+        for a in data.get("agents", []):
+            agent = Agent(**a)
+            agent_mgr.register(agent)
+        for c in data.get("campaigns", []):
+            campaign = Campaign(**c)
+            campaigns[campaign.id] = campaign
+        for c in data.get("calls", []):
+            call = Call(**c)
+            call_mgr.add(call)
+        logger.info("Loaded persisted state: %d agents, %d campaigns, %d calls",
+                    len(data.get("agents", [])),
+                    len(data.get("campaigns", [])),
+                    len(data.get("calls", [])))
+    except Exception as exc:
+        logger.error("Failed to restore persisted state: %s", exc)
 
 
 # ── WebSocket broadcast ────────────────────────────────────────────────────────
@@ -170,6 +199,7 @@ async def _global_on_hangup(event) -> None:
         return
     if call.agent_id:
         await agent_mgr.release_call(call.agent_id)
+    _save()
     await broadcast("call_ended", call.model_dump())
 
 
@@ -182,6 +212,9 @@ esl.add_handler("CHANNEL_HANGUP",  _global_on_hangup)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Restore persisted state before accepting requests
+    _load_persisted()
+
     try:
         await esl.connect()
         await esl.subscribe(
@@ -200,6 +233,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    _save()   # save on clean shutdown
     await esl.disconnect()
 
 
@@ -221,6 +255,7 @@ async def root():
 async def create_campaign(body: CampaignCreate):
     c = Campaign(name=body.name)
     campaigns[c.id] = c
+    _save()
     return c
 
 
@@ -260,6 +295,7 @@ async def upload_contacts(campaign_id: str, file: UploadFile):
 
     c.stats.contacts_total = len(c.contacts)
     c.stats.contacts_remaining = len(c.contacts)
+    _save()
     return {"added": added, "total": len(c.contacts)}
 
 
@@ -369,6 +405,7 @@ async def stop_campaign(campaign_id: str):
 async def create_agent(body: AgentCreate):
     agent = Agent(name=body.name, extension=body.extension)
     agent_mgr.register(agent)
+    _save()
     return agent
 
 
