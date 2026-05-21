@@ -126,28 +126,35 @@ class ESLClient:
         return job_uuid
 
     async def originate(self, phone: str, gateway: str, caller_id: str,
-                        timeout: int = 30) -> str:
-        """Originate an outbound call, park it on answer.  Returns Job-UUID.
+                        timeout: int = 30) -> tuple[str, str]:
+        """Originate an outbound call, park it on answer.
+
+        Returns (job_uuid, channel_uuid).
+
+        channel_uuid is pre-set via origination_uuid so CHANNEL_ANSWER can be
+        matched immediately — even before the BACKGROUND_JOB reply arrives.
 
         If `gateway` looks like an IP address (e.g. '88.151.132.84') the call
-        is sent directly to that SIP host — no gateway registration required
-        (IP-authenticated carrier).  Otherwise a named FreeSWITCH gateway is used.
+        is sent directly to that SIP host (IP-authenticated carrier).
+        Otherwise a named FreeSWITCH gateway is used.
         """
         import re
+        channel_uuid = str(uuid.uuid4())
+
         if re.match(r"^\d{1,3}(\.\d{1,3}){3}", gateway):
-            # Direct IP dialing — works with IP-authenticated carriers
             endpoint = f"sofia/external/{phone}@{gateway}"
         else:
-            # Named gateway (must be registered in FreeSWITCH sofia profile)
             endpoint = f"sofia/gateway/{gateway}/{phone}"
 
         dial = (
-            f"{{originate_timeout={timeout},"
+            f"{{origination_uuid={channel_uuid},"
+            f"originate_timeout={timeout},"
             f"ignore_early_media=true,"
             f"origination_caller_id_number={caller_id}}}"
             f"{endpoint}"
         )
-        return await self.bgapi(f"originate {dial} &park()")
+        job_uuid = await self.bgapi(f"originate {dial} &park()")
+        return job_uuid, channel_uuid
 
     async def bridge_to_agent(self, call_uuid: str, extension: str) -> str:
         """Transfer a parked call to an agent's extension."""

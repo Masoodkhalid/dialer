@@ -210,13 +210,15 @@ class DialerEngine:
         try:
             # Prepend carrier route prefix (e.g. "4164#") if configured
             dial_number = f"{self.dial_prefix}{contact.phone}"
-            job_uuid = await self.esl.originate(
+            job_uuid, channel_uuid = await self.esl.originate(
                 dial_number, self.gateway, self.caller_id, self.dial_timeout
             )
             call.fs_job_uuid = job_uuid
             self.call_mgr._by_job_uuid[job_uuid] = call.id
+            # Pre-map channel UUID so CHANNEL_ANSWER is never missed
+            self.call_mgr.set_fs_uuid(call.id, channel_uuid)
             call.status = CallStatus.RINGING
-            logger.info("Dialing %s job=%s", contact.phone, job_uuid)
+            logger.info("Dialing %s job=%s uuid=%s", contact.phone, job_uuid, channel_uuid)
             self.campaign.stats.contacts_dialed += 1
             self._update_stats()
             await self._emit("call_dialing", call.model_dump())

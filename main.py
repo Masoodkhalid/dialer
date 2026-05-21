@@ -500,7 +500,7 @@ async def quick_dial(body: dict):
     call_mgr.add(call)
 
     try:
-        job_uuid = await esl.originate(
+        job_uuid, channel_uuid = await esl.originate(
             phone,
             settings.SIP_GATEWAY,
             settings.CALLER_ID_NUMBER,
@@ -508,9 +508,11 @@ async def quick_dial(body: dict):
         )
         call.fs_job_uuid = job_uuid
         call_mgr._by_job_uuid[job_uuid] = call.id
+        # Pre-map channel UUID so CHANNEL_ANSWER is never missed
+        call_mgr.set_fs_uuid(call.id, channel_uuid)
         call.status = CallStatus.RINGING
         await broadcast("call_dialing", call.model_dump())
-        logger.info("Quick dial: %s job=%s", phone, job_uuid)
+        logger.info("Quick dial: %s job=%s uuid=%s", phone, job_uuid, channel_uuid)
         return {"status": "dialing", "call_id": call.id, "job_uuid": job_uuid}
     except Exception as exc:
         call.status = CallStatus.FAILED
