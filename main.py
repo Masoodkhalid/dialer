@@ -59,8 +59,15 @@ admin_ws_clients: List[WebSocket] = []
 
 # ── WebSocket broadcast ────────────────────────────────────────────────────────
 
+def _json_default(obj):
+    """Handle datetime and other non-serializable types."""
+    if hasattr(obj, "isoformat"):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
 async def broadcast(event_type: str, data) -> None:
-    msg = json.dumps({"type": event_type, "data": data})
+    msg = json.dumps({"type": event_type, "data": data}, default=_json_default)
     dead = []
     for ws in admin_ws_clients:
         try:
@@ -430,7 +437,7 @@ async def admin_ws(ws: WebSocket):
         "campaigns": [c.model_dump(exclude={"contacts"}) for c in campaigns.values()],
         "active_calls": [c.model_dump() for c in call_mgr.active()],
     }
-    await ws.send_text(json.dumps({"type": "snapshot", "data": snapshot}))
+    await ws.send_text(json.dumps({"type": "snapshot", "data": snapshot}, default=_json_default))
 
     try:
         while True:
