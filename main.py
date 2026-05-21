@@ -362,6 +362,36 @@ async def serve_recording(filename: str):
     })
 
 
+@app.post("/calls/quick-dial")
+async def quick_dial(body: dict):
+    """Dial a single number immediately — useful for testing."""
+    phone = (body.get("phone") or "").strip()
+    if not phone:
+        raise HTTPException(400, "phone required")
+
+    contact = Contact(phone=phone, name=body.get("name", "Quick Dial"))
+    call = Call(contact=contact, campaign_id="quick")
+    call_mgr.add(call)
+
+    try:
+        job_uuid = await esl.originate(
+            phone,
+            settings.SIP_GATEWAY,
+            settings.CALLER_ID_NUMBER,
+            settings.DIAL_TIMEOUT,
+        )
+        call.fs_job_uuid = job_uuid
+        call_mgr._by_job_uuid[job_uuid] = call.id
+        call.status = CallStatus.RINGING
+        await broadcast("call_dialing", call.model_dump())
+        logger.info("Quick dial: %s job=%s", phone, job_uuid)
+        return {"status": "dialing", "call_id": call.id, "job_uuid": job_uuid}
+    except Exception as exc:
+        call.status = CallStatus.FAILED
+        call_mgr._calls.pop(call.id, None)
+        raise HTTPException(500, str(exc))
+
+
 @app.post("/calls/disposition")
 async def set_disposition(body: AgentDisposition):
     call = call_mgr.set_disposition(body.call_id, body.disposition,

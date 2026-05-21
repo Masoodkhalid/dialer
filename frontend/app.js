@@ -224,6 +224,28 @@ async function campAction(action) {
   refreshStatsBar();
 }
 
+// ── Quick Dial ─────────────────────────────────────────────────────────────────
+async function quickDial() {
+  const num = document.getElementById('quick-number').value.trim();
+  const res = document.getElementById('quick-result');
+  if (!num) return;
+  res.style.color = 'var(--muted)';
+  res.textContent = '⏳ Dialing ' + num + '…';
+  try {
+    await api('POST', '/calls/quick-dial', { phone: num, name: 'Quick Dial' });
+    res.style.color = '#4ade80';
+    res.textContent = '✓ Call placed — watch Active Calls tab';
+    document.getElementById('quick-number').value = '';
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelector('.tab').classList.add('active');
+    document.getElementById('tab-active').classList.add('active');
+  } catch(e) {
+    res.style.color = '#f87171';
+    res.textContent = '✗ ' + e.message;
+  }
+}
+
 // ── Agents ─────────────────────────────────────────────────────────────────────
 async function addAgent() {
   const name = document.getElementById('agent-name').value.trim();
