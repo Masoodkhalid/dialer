@@ -110,6 +110,10 @@ async def broadcast(event_type: str, data) -> None:
 async def on_dialer_event(event_type: str, data: dict) -> None:
     await broadcast(event_type, data)
 
+    # Save state whenever a call ends or campaign changes
+    if event_type in ("call_ended", "campaign_completed", "campaign_stopped"):
+        _save()
+
     # Post-call AI analysis when a call ends with an agent
     if event_type == "call_ended":
         call_id = data.get("id")
@@ -148,14 +152,14 @@ async def _on_agent_change(agent: Agent) -> None:
 agent_mgr.on_change(_on_agent_change)
 
 
-# ── Global ESL handlers (handle quick-dial + any unattached calls) ─────────────
+# ── Global ESL handlers (QUICK DIAL only — campaign calls handled by DialerEngine)
 
 async def _global_on_background_job(event) -> None:
     job_uuid = event.job_uuid
     body = event.get("body", "").strip()
     call = call_mgr.by_job_uuid(job_uuid)
-    if not call:
-        return
+    if not call or call.campaign_id != "quick":
+        return   # campaign calls handled by DialerEngine
     if body.startswith("+OK"):
         fs_uuid = body.split()[-1]
         call_mgr.set_fs_uuid(call.id, fs_uuid)
@@ -167,10 +171,12 @@ async def _global_on_background_job(event) -> None:
 
 async def _global_on_answer(event) -> None:
     fs_uuid = event.unique_id
+    call = call_mgr.by_fs_uuid(fs_uuid)
+    if not call or call.campaign_id != "quick":
+        return   # campaign calls handled by DialerEngine
     call = call_mgr.on_answered(fs_uuid)
     if not call:
         return
-    # Bridge to an idle agent if available
     idle = agent_mgr.get_idle()
     if idle:
         agent = idle[0]
@@ -193,6 +199,9 @@ async def _global_on_answer(event) -> None:
 
 async def _global_on_hangup(event) -> None:
     fs_uuid = event.unique_id
+    call = call_mgr.by_fs_uuid(fs_uuid)
+    if not call or call.campaign_id != "quick":
+        return   # campaign calls handled by DialerEngine
     cause = event.get("Hangup-Cause", "")
     call = call_mgr.on_hangup(fs_uuid, cause)
     if not call:
