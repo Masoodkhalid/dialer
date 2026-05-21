@@ -30,6 +30,8 @@ from models import (
     AgentCreate,
     AgentDisposition,
     AgentLogin,
+    Call,
+    CallStatus,
     Campaign,
     CampaignCreate,
     CampaignStatus,
