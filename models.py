@@ -87,8 +87,9 @@ class Agent(BaseModel):
 
 class Call(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    fs_uuid: Optional[str] = None       # FreeSWITCH Unique-ID
+    fs_uuid: Optional[str] = None       # FreeSWITCH Unique-ID (carrier leg)
     fs_job_uuid: Optional[str] = None   # bgapi Job-UUID
+    agent_fs_uuid: Optional[str] = None # FreeSWITCH Unique-ID (agent/Zoiper leg)
     contact: Contact
     agent_id: Optional[str] = None
     status: CallStatus = CallStatus.DIALING

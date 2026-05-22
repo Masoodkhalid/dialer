@@ -203,14 +203,23 @@ async def _global_on_background_job(event) -> None:
     body = event.get("body", "").strip()
     call = call_mgr.by_job_uuid(job_uuid)
     if not call:
-        # Could be a bridge job (originate &bridge) — log for diagnostics
         logger.info("BACKGROUND_JOB job=%s (no matching call) body=%r", job_uuid, body)
         return
     if call.campaign_id != "quick":
         return
+
     if body.startswith("+OK"):
-        fs_uuid = body.split()[-1]
-        call_mgr.set_fs_uuid(call.id, fs_uuid)
+        result_uuid = body.split()[-1]
+        if call.fs_uuid and result_uuid != call.fs_uuid and call.agent_fs_uuid is None:
+            # Bridge job returned agent (Zoiper) leg UUID — register it so HANGUP finds it
+            call.agent_fs_uuid = result_uuid
+            call_mgr._by_fs_uuid[result_uuid] = call.id
+            call_mgr.on_bridged(call.fs_uuid, call.agent_id or "")
+            logger.info("Bridge +OK: agent_uuid=%s registered for call=%s", result_uuid, call.id)
+            await broadcast("call_bridged", call.model_dump())
+        else:
+            # Originate job confirmation — update carrier UUID in case it differs
+            call_mgr.set_fs_uuid(call.id, result_uuid)
     else:
         logger.warning("BACKGROUND_JOB failed: job=%s call=%s reason=%r", job_uuid, call.id, body)
         call_mgr.on_failed(job_uuid, body)
@@ -255,6 +264,7 @@ async def _global_on_answer(event) -> None:
         call.agent_id = agent.id
         try:
             job = await esl.bridge_to_agent(call.fs_uuid, agent.extension, call.contact.phone)
+            call_mgr._by_job_uuid[job] = call.id   # register bridge job so BACKGROUND_JOB finds it
             logger.info("Bridge dispatched job=%s → agent %s ext=%s",
                         job, agent.name, agent.extension)
         except Exception as exc:
@@ -280,10 +290,24 @@ async def _global_on_hangup(event) -> None:
         event.get("variable_sip_invite_failure_status") or
         event.get("variable_sip_term_cause") or ""
     )
-    # Log all SIP-related variables to help diagnose carrier issues
     sip_vars = {k: v for k, v in event.items() if "sip" in k.lower()}
     logger.info("HANGUP fs=%s cause=%s sip_code=%s sip_vars=%s",
                 fs_uuid, cause, sip_code, sip_vars)
+
+    # ── Agent (Zoiper) leg hung up ─────────────────────────────────────────────
+    # When Zoiper drops, the carrier leg stays alive in FreeSWITCH.
+    # We must kill it explicitly so the call ends and the dashboard updates.
+    if fs_uuid == call.agent_fs_uuid:
+        logger.info("Agent leg %s hung up → killing carrier leg %s", fs_uuid, call.fs_uuid)
+        if call.fs_uuid:
+            try:
+                await esl.hangup(call.fs_uuid)
+            except Exception as exc:
+                logger.warning("Could not hang up carrier leg: %s", exc)
+        # The CHANNEL_HANGUP for the carrier leg will arrive and do final cleanup
+        return
+
+    # ── Carrier leg hung up (normal path) ─────────────────────────────────────
     call = call_mgr.on_hangup(fs_uuid, cause, sip_code)
     if not call:
         return
