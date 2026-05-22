@@ -347,7 +347,10 @@ class DialerEngine:
     # ── Bridging ───────────────────────────────────────────────────────────────
 
     async def _bridge_call(self, call: Call) -> None:
+        all_agents = self.agent_mgr.list_all()
         idle = self.agent_mgr.get_idle()
+        logger.info("_bridge_call: phone=%s fs_uuid=%s total_agents=%d idle=%d",
+                    call.contact.phone, call.fs_uuid, len(all_agents), len(idle))
         if not idle:
             # No agents available — this call becomes a drop
             if call.fs_uuid:
@@ -355,19 +358,21 @@ class DialerEngine:
             call.status = CallStatus.DROPPED
             self.campaign.stats.calls_dropped += 1
             self._update_stats()
-            logger.warning("No idle agent for %s — dropping", call.contact.phone)
+            logger.warning("No idle agent for %s — dropping (agents=%s)",
+                           call.contact.phone, [(a.name, a.status) for a in all_agents])
             return
 
         agent = idle[0]
+        logger.info("Assigning agent %s (ext=%s) to call %s", agent.name, agent.extension, call.id)
         await self.agent_mgr.assign_call(agent.id, call.id)
         call.agent_id = agent.id
 
         try:
-            await self.esl.bridge_to_agent(call.fs_uuid, agent.extension, call.contact.phone)
-            logger.info("Bridged %s → agent %s (%s)", call.contact.phone,
-                        agent.name, agent.extension)
+            job = await self.esl.bridge_to_agent(call.fs_uuid, agent.extension, call.contact.phone)
+            logger.info("Bridge dispatched job=%s: %s → agent %s (%s)",
+                        job, call.contact.phone, agent.name, agent.extension)
         except Exception as exc:
-            logger.error("Bridge failed: %s", exc)
+            logger.error("Bridge failed: %s", exc, exc_info=True)
             await self.agent_mgr.release_call(agent.id)
             call.agent_id = None
 

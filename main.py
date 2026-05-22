@@ -182,12 +182,17 @@ async def _global_on_background_job(event) -> None:
     job_uuid = event.job_uuid
     body = event.get("body", "").strip()
     call = call_mgr.by_job_uuid(job_uuid)
-    if not call or call.campaign_id != "quick":
+    if not call:
+        # Could be a bridge job (originate &bridge) — log for diagnostics
+        logger.info("BACKGROUND_JOB job=%s (no matching call) body=%r", job_uuid, body)
+        return
+    if call.campaign_id != "quick":
         return
     if body.startswith("+OK"):
         fs_uuid = body.split()[-1]
         call_mgr.set_fs_uuid(call.id, fs_uuid)
     else:
+        logger.warning("BACKGROUND_JOB failed: job=%s call=%s reason=%r", job_uuid, call.id, body)
         call_mgr.on_failed(job_uuid, body)
         await broadcast("call_failed", {"call_id": call.id, "reason": body})
         await broadcast("call_ended", call.model_dump())
@@ -199,10 +204,15 @@ async def _global_on_answer(event) -> None:
     call = call_mgr.by_fs_uuid(fs_uuid)
     logger.info("CHANNEL_ANSWER call lookup → %s", call.id if call else "NOT FOUND")
     if not call or call.campaign_id != "quick":
+        logger.info("CHANNEL_ANSWER skipped (campaign_id=%s)", call.campaign_id if call else "N/A")
         return
     call = call_mgr.on_answered(fs_uuid)
     if not call:
+        logger.warning("CHANNEL_ANSWER on_answered returned None for %s", fs_uuid)
         return
+
+    logger.info("Quick-dial answered: phone=%s fs_uuid=%s", call.contact.phone, fs_uuid)
+
     if settings.RECORDING_ENABLED and call.fs_uuid:
         rec_file = f"{settings.RECORDING_DIR}/{call.id}.{settings.RECORDING_FORMAT}"
         try:
@@ -212,20 +222,27 @@ async def _global_on_answer(event) -> None:
         except Exception as exc:
             logger.warning("Recording start failed: %s", exc)
 
+    all_agents = agent_mgr.list_all()
     idle = agent_mgr.get_idle()
+    logger.info("Agents: total=%d idle=%d names=%s",
+                len(all_agents), len(idle),
+                [(a.name, a.status) for a in all_agents])
+
     if idle:
         agent = idle[0]
+        logger.info("Bridging to agent %s ext=%s", agent.name, agent.extension)
         await agent_mgr.assign_call(agent.id, call.id)
         call.agent_id = agent.id
         try:
-            await esl.bridge_to_agent(call.fs_uuid, agent.extension, call.contact.phone)
-            logger.info("Quick-dial bridged %s → agent %s", call.contact.phone, agent.extension)
+            job = await esl.bridge_to_agent(call.fs_uuid, agent.extension, call.contact.phone)
+            logger.info("Bridge dispatched job=%s → agent %s ext=%s",
+                        job, agent.name, agent.extension)
         except Exception as exc:
-            logger.error("Bridge failed: %s", exc)
+            logger.error("Bridge failed: %s", exc, exc_info=True)
             await agent_mgr.release_call(agent.id)
             call.agent_id = None
     else:
-        logger.warning("Quick-dial: no idle agent for %s — dropping", call.contact.phone)
+        logger.warning("Quick-dial: NO IDLE AGENTS for %s — dropping call", call.contact.phone)
         if call.fs_uuid:
             await esl.hangup(call.fs_uuid)
         call.status = CallStatus.DROPPED

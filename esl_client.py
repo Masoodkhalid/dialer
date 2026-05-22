@@ -160,19 +160,30 @@ class ESLClient:
                               caller_id: str = "") -> str:
         """Ring the agent and bridge them to the parked customer call.
 
-        Uses originate &bridge() so FreeSWITCH acts as a B2BUA — the
-        carrier SIP session stays alive and the two legs are joined at
-        the media layer.  uuid_transfer must NOT be used here because it
-        sends BYE to the carrier, immediately killing the customer call.
+        Uses bgapi originate &bridge() so FreeSWITCH acts as a B2BUA and
+        the command is NON-BLOCKING — the carrier SIP session stays alive,
+        the agent's phone rings in the background, and once the agent
+        answers FreeSWITCH joins both legs at the media layer.
+
+        NOTE: uuid_transfer must NOT be used here because it sends BYE to
+        the carrier, immediately killing the customer call.
+        NOTE: api (synchronous) must NOT be used for originate because it
+        holds the API lock for the entire ring duration and times out if the
+        agent doesn't answer within 30 s, corrupting the response queue.
         """
         cid = caller_id or "Dialer"
-        return await self.api(
+        cmd = (
             f"originate {{"
             f"origination_caller_id_number={cid},"
             f"origination_caller_id_name={cid},"
-            f"ignore_early_media=true"
+            f"leg_timeout=30"
             f"}}user/{extension} &bridge({call_uuid})"
         )
+        logger.info("bridge_to_agent → bgapi %s", cmd)
+        job_uuid = await self.bgapi(cmd)
+        logger.info("bridge_to_agent dispatched job=%s (call=%s ext=%s)",
+                    job_uuid, call_uuid, extension)
+        return job_uuid
 
     async def hangup(self, call_uuid: str, cause: str = "NORMAL_CLEARING") -> str:
         return await self.api(f"uuid_kill {call_uuid} {cause}")
