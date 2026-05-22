@@ -158,15 +158,17 @@ class ESLClient:
 
     async def bridge_to_agent(self, call_uuid: str, extension: str,
                               caller_id: str = "") -> str:
-        """Ring the agent and bridge them to the parked customer call.
+        """Ring the agent and park them; caller bridges both with uuid_bridge.
 
-        Uses bgapi originate &bridge() so FreeSWITCH acts as a B2BUA and
-        the command is NON-BLOCKING — the carrier SIP session stays alive,
-        the agent's phone rings in the background, and once the agent
-        answers FreeSWITCH joins both legs at the media layer.
+        Parks the agent leg with &park() so FreeSWITCH holds both legs
+        independently. The BACKGROUND_JOB +OK returns the agent UUID;
+        the caller then uses uuid_bridge(carrier_uuid, agent_uuid) to
+        connect the two parked channels.
 
-        NOTE: uuid_transfer must NOT be used here because it sends BYE to
-        the carrier, immediately killing the customer call.
+        This avoids CHAN_NOT_IMPLEMENTED that occurs when &bridge() is run
+        from the B-leg pointing at a carrier leg that has been in park/IVR
+        for an extended period (18–30 s ring time).
+
         NOTE: api (synchronous) must NOT be used for originate because it
         holds the API lock for the entire ring duration and times out if the
         agent doesn't answer within 30 s, corrupting the response queue.
@@ -177,13 +179,23 @@ class ESLClient:
             f"origination_caller_id_number={cid},"
             f"origination_caller_id_name={cid},"
             f"leg_timeout=30"
-            f"}}user/{extension} &bridge({call_uuid})"
+            f"}}user/{extension} &park()"
         )
         logger.info("bridge_to_agent → bgapi %s", cmd)
         job_uuid = await self.bgapi(cmd)
         logger.info("bridge_to_agent dispatched job=%s (call=%s ext=%s)",
                     job_uuid, call_uuid, extension)
         return job_uuid
+
+    async def uuid_bridge(self, uuid_a: str, uuid_b: str) -> str:
+        """Bridge two already-answered/parked channels together.
+
+        Both channels must exist and be in a bridgeable state.
+        Returns the api response string.
+        """
+        resp = await self.api(f"uuid_bridge {uuid_a} {uuid_b}")
+        logger.info("uuid_bridge %s <-> %s → %s", uuid_a, uuid_b, resp.strip())
+        return resp
 
     async def hangup(self, call_uuid: str, cause: str = "NORMAL_CLEARING") -> str:
         return await self.api(f"uuid_kill {call_uuid} {cause}")
