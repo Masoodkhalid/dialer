@@ -8,7 +8,16 @@ if (!_token || _role !== 'superadmin') {
 }
 
 document.getElementById('adm-user').textContent =
-  '👤 ' + (localStorage.getItem('dialer_username') || 'admin');
+  localStorage.getItem('dialer_username') || 'admin';
+
+function toggleAdmSidebar() {
+  document.getElementById('adm-sidebar')?.classList.toggle('open');
+  document.getElementById('overlay')?.classList.toggle('show');
+}
+function closeAdmSidebar() {
+  document.getElementById('adm-sidebar')?.classList.remove('open');
+  document.getElementById('overlay')?.classList.remove('show');
+}
 
 // ── Clock ──────────────────────────────────────────────────────────────────────
 setInterval(() => {
@@ -27,6 +36,7 @@ function showSection(name, btn) {
   document.querySelectorAll('.adm-nav-item').forEach(b => b.classList.remove('active'));
   document.getElementById('sec-' + name).classList.add('active');
   btn.classList.add('active');
+  closeAdmSidebar();
   if (name === 'reports') loadReports();
   if (name === 'users')   loadUsers();
   if (name === 'dids')    loadDids();

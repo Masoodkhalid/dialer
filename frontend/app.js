@@ -143,6 +143,44 @@ function handleMsg(type, data) {
   }
 }
 
+// ── Mobile sidebar ─────────────────────────────────────────────────────────────
+function toggleSidebar() {
+  const sb = document.getElementById('sidebar');
+  const ov = document.getElementById('overlay');
+  sb.classList.toggle('open');
+  ov.classList.toggle('show');
+}
+function closeSidebar() {
+  document.getElementById('sidebar')?.classList.remove('open');
+  document.getElementById('overlay')?.classList.remove('show');
+}
+function openDialPanel() {
+  toggleSidebar();
+  // scroll quick-dial section into view inside sidebar
+  setTimeout(() => {
+    const el = document.getElementById('quick-number');
+    if (el) { el.scrollIntoView({ behavior: 'smooth' }); el.focus(); }
+  }, 200);
+}
+function toggleAgentPanel() {
+  toggleSidebar();
+  setTimeout(() => {
+    document.getElementById('agent-list')?.scrollIntoView({ behavior: 'smooth' });
+  }, 200);
+}
+function switchTabMobile(name) {
+  // close sidebar if open
+  closeSidebar();
+  // switch to correct tab
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + name)?.classList.add('active');
+  // activate the correct desktop tab button
+  document.querySelectorAll('.tab').forEach(t => {
+    if (t.getAttribute('onclick')?.includes(`'${name}'`)) t.classList.add('active');
+  });
+}
+
 startWebSocket();
 
 // ── Tabs ───────────────────────────────────────────────────────────────────────
