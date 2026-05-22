@@ -77,8 +77,7 @@ def _load_persisted() -> None:
     data = storage.load()
     if data:
         try:
-            for a in data.get("agents", []):
-                agent_mgr.register(Agent(**a))
+            # Load campaigns, calls, users, DIDs first — agents are rebuilt from users below
             for c in data.get("campaigns", []):
                 campaign = Campaign(**c)
                 campaigns[campaign.id] = campaign
@@ -89,10 +88,9 @@ def _load_persisted() -> None:
                 users[user.username] = user
             for d in data.get("dids", []):
                 dids.append(DID(**d))
-            logger.info("Loaded persisted state: %d agents, %d campaigns, %d calls, %d users, %d DIDs",
-                        len(data.get("agents", [])), len(data.get("campaigns", [])),
-                        len(data.get("calls", [])), len(data.get("users", [])),
-                        len(data.get("dids", [])))
+            logger.info("Loaded persisted state: %d campaigns, %d calls, %d users, %d DIDs",
+                        len(data.get("campaigns", [])), len(data.get("calls", [])),
+                        len(data.get("users", [])), len(data.get("dids", [])))
         except Exception as exc:
             logger.error("Failed to restore persisted state: %s", exc)
 
@@ -114,7 +112,29 @@ def _load_persisted() -> None:
         ]:
             dids.append(DID(number=number, label=f"DID {number[-4:]}"))
         logger.info("Seeded %d default DIDs", len(dids))
-        _save()
+
+    # ── Agent reconciliation (runs every startup) ──────────────────────────────
+    # Agents are ONLY created from users — any orphaned agents are purged.
+    # This also migrates old manually-created agents to the user-linked system.
+    for user in users.values():
+        if user.extension and not user.agent_id:
+            # User has an extension but no linked agent → create one now
+            agent = Agent(name=user.username, extension=user.extension)
+            agent_mgr.register(agent)
+            user.agent_id = agent.id
+            logger.info("Auto-created agent '%s' ext=%s for user '%s'",
+                        user.username, user.extension, user.username)
+        elif user.agent_id:
+            # Re-register the agent (restore from data)
+            agent = Agent(
+                id=user.agent_id,
+                name=user.username,
+                extension=user.extension or "",
+            )
+            agent_mgr.register(agent)
+
+    logger.info("Agents after reconciliation: %d", len(agent_mgr.list_all()))
+    _save()
 
 
 # ── WebSocket broadcast ────────────────────────────────────────────────────────
