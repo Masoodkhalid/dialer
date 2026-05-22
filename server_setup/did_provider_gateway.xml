@@ -1,0 +1,29 @@
+<!--
+  Gateway: DID Provider (IP-authenticated trunk)
+  ──────────────────────────────────────────────
+  Save this file on your FreeSWITCH server at:
+    /etc/freeswitch/sip_profiles/external/did_provider.xml
+
+  This routes outbound calls through your DID provider (64.185.231.146)
+  instead of SIPNAV (88.151.132.84). Since your DID is from this provider,
+  they should have proper US mobile routing.
+
+  After placing this file:
+    fs_cli -H 127.0.0.1 -p ClueCon -x "sofia profile external rescan"
+    fs_cli -H 127.0.0.1 -p ClueCon -x "sofia status gateway did_provider"
+    → Should show: State NOREG (IP auth = no registration needed)
+-->
+<include>
+  <gateway name="did_provider">
+    <!-- IP-authenticated — no username/password, authenticated by your server IP -->
+    <param name="username"             value="did_provider"/>
+    <param name="realm"                value="64.185.231.146"/>
+    <param name="proxy"                value="64.185.231.146"/>
+    <param name="remote-network-addr"  value="64.185.231.146"/>
+    <param name="register"             value="false"/>
+    <param name="caller-id-in-from"    value="true"/>
+    <param name="ping"                 value="30"/>
+    <param name="codec-prefs"          value="PCMA,PCMU,G722"/>
+    <param name="dtmf-type"            value="rfc2833"/>
+  </gateway>
+</include>

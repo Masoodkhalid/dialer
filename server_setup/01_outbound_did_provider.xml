@@ -1,0 +1,24 @@
+<!--
+  FreeSWITCH Outbound Dialplan — DID Provider (64.185.231.146)
+  ─────────────────────────────────────────────────────────────
+  Save on your FreeSWITCH server at:
+    /etc/freeswitch/dialplan/default/01_outbound.xml
+  (Replace the old telcastc/SIPNAV version)
+
+  NO prefix — if your DID provider needs one (like 4164#), add it
+  to the bridge line: sofia/gateway/did_provider/PREFIX$1$2
+
+  To reload without restart:
+    fs_cli -H 127.0.0.1 -p ClueCon -x "reloadxml"
+-->
+<include>
+  <extension name="outbound_us">
+    <condition field="destination_number" expression="^(\+?1?(\d{10}))$">
+      <action application="set" data="effective_caller_id_number=${outbound_caller_id_number}"/>
+      <action application="set" data="effective_caller_id_name=${outbound_caller_id_name}"/>
+      <action application="set" data="call_timeout=30"/>
+      <action application="set" data="hangup_after_bridge=true"/>
+      <action application="bridge" data="sofia/gateway/did_provider/1$2"/>
+    </condition>
+  </extension>
+</include>
