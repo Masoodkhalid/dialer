@@ -288,8 +288,12 @@ class DialerEngine:
         cause = event.get("Hangup-Cause", "")
         sip_code = (
             event.get("variable_sip_term_status") or
-            event.get("variable_sip_invite_failure_status") or ""
+            event.get("variable_sip_invite_failure_status") or
+            event.get("variable_sip_term_cause") or ""
         )
+        sip_vars = {k: v for k, v in event.items() if "sip" in k.lower()}
+        logger.info("HANGUP fs=%s cause=%s sip_code=%s sip_vars=%s",
+                    fs_uuid, cause, sip_code, sip_vars)
         # Stop recording before closing the call
         if self.recording_enabled and fs_uuid:
             try:

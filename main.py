@@ -240,8 +240,13 @@ async def _global_on_hangup(event) -> None:
     cause = event.get("Hangup-Cause", "")
     sip_code = (
         event.get("variable_sip_term_status") or
-        event.get("variable_sip_invite_failure_status") or ""
+        event.get("variable_sip_invite_failure_status") or
+        event.get("variable_sip_term_cause") or ""
     )
+    # Log all SIP-related variables to help diagnose carrier issues
+    sip_vars = {k: v for k, v in event.items() if "sip" in k.lower()}
+    logger.info("HANGUP fs=%s cause=%s sip_code=%s sip_vars=%s",
+                fs_uuid, cause, sip_code, sip_vars)
     call = call_mgr.on_hangup(fs_uuid, cause, sip_code)
     if not call:
         return

@@ -6,6 +6,28 @@ from typing import Dict, List, Optional
 
 from models import Call, CallStatus, AMDResult
 
+# Map FreeSWITCH hangup causes → approximate SIP code (used as fallback)
+_CAUSE_SIP: Dict[str, str] = {
+    "NORMAL_CLEARING":           "200",
+    "USER_BUSY":                 "486",
+    "NO_ANSWER":                 "480",
+    "NO_USER_RESPONSE":          "408",
+    "CALL_REJECTED":             "603",
+    "UNALLOCATED_NUMBER":        "404",
+    "NORMAL_TEMPORARY_FAILURE":  "503",
+    "SERVICE_UNAVAILABLE":       "503",
+    "DESTINATION_OUT_OF_ORDER":  "502",
+    "INVALID_NUMBER_FORMAT":     "484",
+    "FACILITY_NOT_SUBSCRIBED":   "403",
+    "INCOMPATIBLE_DESTINATION":  "488",
+    "ORIGINATOR_CANCEL":         "487",
+    "EXCHANGE_ROUTING_ERROR":    "502",
+    "NO_ROUTE_DESTINATION":      "404",
+    "RECOVERY_ON_TIMER_EXPIRE":  "408",
+    "MANDATORY_IE_MISSING":      "400",
+    "INVALID_IE_CONTENTS":       "400",
+}
+
 logger = logging.getLogger(__name__)
 
 
@@ -85,16 +107,23 @@ class CallManager:
         call.end_time = datetime.utcnow()
         if cause:
             call.hangup_cause = cause
+        # Use SIP code from event; fall back to cause-map if not captured
         if sip_code:
             call.sip_code = sip_code
+        elif cause and not call.sip_code:
+            call.sip_code = _CAUSE_SIP.get(cause, "")
         if call.answer_time:
             call.duration = int((call.end_time - call.answer_time).total_seconds())
 
-        if call.status in (CallStatus.DIALING, CallStatus.RINGING, CallStatus.ANSWERED, CallStatus.AMD_CHECK):
+        # DROPPED means we already decided no-agent/drop — preserve that status
+        if call.status in (CallStatus.DIALING, CallStatus.RINGING,
+                           CallStatus.ANSWERED, CallStatus.AMD_CHECK,
+                           CallStatus.DROPPED):
             call.status = CallStatus.DROPPED
             if not call.disposition:
                 call.disposition = "no-answer"
         else:
+            # BRIDGED → call completed with an agent
             call.status = CallStatus.COMPLETED
             if not call.disposition:
                 call.disposition = "answered"
