@@ -1,0 +1,42 @@
+<!--
+  FreeSWITCH Outbound Dialplan — Telnyx / VoIP.ms
+  ─────────────────────────────────────────────────
+  Save on your FreeSWITCH server at:
+    /etc/freeswitch/dialplan/default/01_outbound.xml
+  (Replace the old telcastc/SIPNAV version completely)
+
+  Change "telnyx" to "voipms" in the bridge line if using VoIP.ms.
+
+  Numbers accepted:
+    10-digit:  2125551234      → sends as 12125551234
+    11-digit:  12125551234     → sends as 12125551234
+    +1 format: +12125551234    → sends as 12125551234
+
+  To reload without restarting FreeSWITCH:
+    fs_cli -H 127.0.0.1 -p ClueCon -x "reloadxml"
+-->
+<include>
+  <extension name="outbound_us">
+    <!-- Match 10 or 11-digit US/Canada numbers (with optional +1 prefix) -->
+    <condition field="destination_number" expression="^(\+?1?(\d{10}))$">
+
+      <!-- Preserve caller-ID set by the dialer -->
+      <action application="set" data="effective_caller_id_number=${outbound_caller_id_number}"/>
+      <action application="set" data="effective_caller_id_name=${outbound_caller_id_name}"/>
+
+      <!-- How long to let the far end ring before giving up (seconds) -->
+      <action application="set" data="call_timeout=30"/>
+
+      <!-- Hang up this leg when the bridge ends -->
+      <action application="set" data="hangup_after_bridge=true"/>
+
+      <!--
+        Bridge via Telnyx.
+        Number is always sent as E.164 without + (e.g. 12125551234).
+        Switch "telnyx" → "voipms" if you prefer VoIP.ms.
+      -->
+      <action application="bridge" data="sofia/gateway/telnyx/1$2"/>
+
+    </condition>
+  </extension>
+</include>

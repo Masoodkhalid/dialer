@@ -1,0 +1,39 @@
+<!--
+  Gateway: VoIP.ms SIP Trunk (credential-authenticated)
+  ──────────────────────────────────────────────────────
+  Save this file on your FreeSWITCH server at:
+    /etc/freeswitch/sip_profiles/external/voipms.xml
+
+  How to get credentials from VoIP.ms:
+    1. Sign up at https://voip.ms (pay-as-you-go, very cheap)
+    2. Main Menu → Sub Accounts → Create Sub Account
+    3. Sub Account name: e.g. "dialer"
+    4. Set a SIP password for the sub account
+    5. Your SIP username = YOUR_ACCOUNT_NUMBER_dialer (e.g. 123456_dialer)
+    6. Go to DID Numbers → Order a US DID → assign to your sub account
+    7. Pick your nearest POP server from https://voip.ms/m/allpops.php
+       Common: atlanta.voip.ms | chicago.voip.ms | newyork.voip.ms
+    8. Fill in the values below
+
+  After placing this file on the server:
+    systemctl restart freeswitch
+    fs_cli -H 127.0.0.1 -p ClueCon
+    sofia status gateway voipms   ← should show "REGED"
+-->
+<include>
+  <gateway name="voipms">
+    <!-- e.g. 123456_dialer -->
+    <param name="username"         value="YOUR_ACCOUNT_dialer"/>
+    <param name="password"         value="YOUR_SUBACCOUNT_SIP_PASSWORD"/>
+    <!-- Use your nearest VoIP.ms POP — see https://voip.ms/m/allpops.php -->
+    <param name="realm"            value="atlanta.voip.ms"/>
+    <param name="proxy"            value="atlanta.voip.ms"/>
+    <param name="register"         value="true"/>
+    <param name="register-transport" value="udp"/>
+    <param name="caller-id-in-from"  value="true"/>
+    <param name="ping"             value="30"/>
+    <param name="codec-prefs"      value="PCMU,PCMA,G722"/>
+    <param name="dtmf-type"        value="rfc2833"/>
+    <param name="context"          value="public"/>
+  </gateway>
+</include>

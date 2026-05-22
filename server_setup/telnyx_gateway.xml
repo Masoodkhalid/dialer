@@ -1,0 +1,34 @@
+<!--
+  Gateway: Telnyx SIP Trunk (credential-authenticated)
+  ──────────────────────────────────────────────────────
+  Save this file on your FreeSWITCH server at:
+    /etc/freeswitch/sip_profiles/external/telnyx.xml
+
+  How to get credentials from Telnyx:
+    1. Sign up at https://telnyx.com (free trial — $10 credit)
+    2. Dashboard → SIP Trunking → Connections → Create Credential Connection
+    3. Set connection name (e.g. "dialer")
+    4. Note: Username and Password shown in the connection settings
+    5. Buy a DID number → Routing → assign to your SIP Connection
+    6. Fill in the values below (replace YOUR_... placeholders)
+
+  After placing this file on the server:
+    systemctl restart freeswitch
+    fs_cli -H 127.0.0.1 -p ClueCon
+    sofia status gateway telnyx   ← should show "REGED"
+-->
+<include>
+  <gateway name="telnyx">
+    <param name="username"         value="YOUR_TELNYX_SIP_USERNAME"/>
+    <param name="password"         value="YOUR_TELNYX_SIP_PASSWORD"/>
+    <param name="realm"            value="sip.telnyx.com"/>
+    <param name="proxy"            value="sip.telnyx.com"/>
+    <param name="register"         value="true"/>
+    <param name="register-transport" value="udp"/>
+    <param name="caller-id-in-from"  value="true"/>
+    <param name="ping"             value="30"/>
+    <param name="codec-prefs"      value="PCMU,PCMA,G722"/>
+    <param name="dtmf-type"        value="rfc2833"/>
+    <param name="context"          value="public"/>
+  </gateway>
+</include>

@@ -174,8 +174,126 @@ python3 run.py
 
 | Carrier | SIP Host | Notes |
 |---------|----------|-------|
+| Telnyx  | sip.telnyx.com | Standard SIP, register=true — **recommended for US mobile** |
+| VoIP.ms | atlanta.voip.ms (nearest POP) | Cheapest US option, register=true |
 | Twilio  | sip.twilio.com | Needs TLS — set `<param name="contact-host" value="sip.twilio.com"/>` |
-| Telnyx  | sip.telnyx.com | Standard SIP, register=true |
 | Vonage  | sip.nexmo.com  | Standard SIP |
-| VoIP.ms | atlanta.voip.ms (nearest POP) | Set register=true, use your API password |
 | Generic | your-ip:5060   | May not need registration (`register=false`) |
+
+---
+
+## Switching from SIPNAV / Telcast to a new carrier (US Mobile Fix)
+
+**Problem:** SIPNAV (88.151.132.84) cannot route to US mobile numbers.  
+It answers with 200 OK on its own IVR, then BYEs after ~2 seconds — this is why Zoiper drops immediately.
+
+### Option A — Telnyx (Recommended, $10 free trial)
+
+**Step 1 — Sign up and get SIP credentials**
+1. Go to https://telnyx.com → Create account
+2. Dashboard → **SIP Trunking** → **Connections** → **+ Create**
+3. Choose **"Credentials"** (not IP)
+4. Name it `dialer`, note the **SIP Username** and **SIP Password**
+5. Go to **Numbers** → Buy a US DID number (e.g. +1 800-xxx-xxxx)
+6. Assign the number to your `dialer` connection
+
+**Step 2 — Put gateway file on the FreeSWITCH server**
+```bash
+# On your laptop — copy to server
+scp server_setup/telnyx_gateway.xml root@YOUR_SERVER_IP:/etc/freeswitch/sip_profiles/external/telnyx.xml
+
+# SSH into server and fill in your real credentials
+ssh root@YOUR_SERVER_IP
+nano /etc/freeswitch/sip_profiles/external/telnyx.xml
+# Replace: YOUR_TELNYX_SIP_USERNAME  → e.g. 1234567890abc
+# Replace: YOUR_TELNYX_SIP_PASSWORD  → your password
+```
+
+**Step 3 — Replace the outbound dialplan**
+```bash
+# On your laptop — copy to server (replaces old SIPNAV version)
+scp server_setup/01_outbound_telnyx.xml root@YOUR_SERVER_IP:/etc/freeswitch/dialplan/default/01_outbound.xml
+```
+
+**Step 4 — Reload FreeSWITCH config**
+```bash
+# On the server
+fs_cli -H 127.0.0.1 -p ClueCon -x "reloadxml"
+fs_cli -H 127.0.0.1 -p ClueCon -x "sofia profile external rescan"
+
+# Verify gateway registered
+fs_cli -H 127.0.0.1 -p ClueCon -x "sofia status gateway telnyx"
+# → Should show: State: REGED
+```
+
+**Step 5 — Update .env on your laptop**
+```env
+SIP_GATEWAY=telnyx
+CALLER_ID_NUMBER=1XXXXXXXXXX    # your Telnyx DID (E.164, no +, e.g. 18005551234)
+CALLER_ID_NAME=MyDialer
+DIAL_PREFIX=                    # CLEAR THIS — Telnyx needs no prefix
+```
+
+**Step 6 — Restart dialer and test**
+```bash
+# On your laptop
+python run.py
+
+# Test quick dial to your eSIM — it should actually ring this time
+```
+
+---
+
+### Option B — VoIP.ms (Cheapest, pay-as-you-go)
+
+**Step 1 — Sign up and get SIP credentials**
+1. Go to https://voip.ms → Create account (deposit $10)
+2. **Main Menu → Sub Accounts → Create Sub Account**
+3. Sub account name: `dialer`, set a SIP password
+4. Your username = `YOUR_ACCOUNT_NUMBER_dialer` (e.g. `123456_dialer`)
+5. **DID Numbers → Order New DID** → pick a US number → assign to sub account
+
+**Step 2 — Put gateway file on server and fill credentials**
+```bash
+scp server_setup/voipms_gateway.xml root@YOUR_SERVER_IP:/etc/freeswitch/sip_profiles/external/voipms.xml
+ssh root@YOUR_SERVER_IP
+nano /etc/freeswitch/sip_profiles/external/voipms.xml
+# Fill in: YOUR_ACCOUNT_dialer, YOUR_SUBACCOUNT_SIP_PASSWORD
+# Change POP if needed: atlanta.voip.ms → chicago, newyork, etc.
+```
+
+**Step 3 — Replace outbound dialplan (change "telnyx" to "voipms")**
+```bash
+scp server_setup/01_outbound_telnyx.xml root@YOUR_SERVER_IP:/etc/freeswitch/dialplan/default/01_outbound.xml
+ssh root@YOUR_SERVER_IP
+# Edit the file and change "telnyx" → "voipms" in the bridge line:
+sed -i 's/gateway\/telnyx\//gateway\/voipms\//' /etc/freeswitch/dialplan/default/01_outbound.xml
+```
+
+**Step 4 — Reload FreeSWITCH config**
+```bash
+fs_cli -H 127.0.0.1 -p ClueCon -x "reloadxml"
+fs_cli -H 127.0.0.1 -p ClueCon -x "sofia profile external rescan"
+fs_cli -H 127.0.0.1 -p ClueCon -x "sofia status gateway voipms"
+# → Should show: State: REGED
+```
+
+**Step 5 — Update .env on your laptop**
+```env
+SIP_GATEWAY=voipms
+CALLER_ID_NUMBER=1XXXXXXXXXX    # your VoIP.ms DID
+DIAL_PREFIX=                    # CLEAR THIS — no prefix needed
+```
+
+---
+
+### Verify everything works
+
+After setup, test from `fs_cli` directly before using the dashboard:
+```bash
+# Dial your eSIM number directly from FreeSWITCH (replace with your number)
+originate {origination_caller_id_number=18005551234}sofia/gateway/telnyx/12018843304 &echo
+
+# If your eSIM rings and you hear echo → carrier is working correctly
+# Then test from the dialer dashboard (Quick Dial)
+```
