@@ -229,11 +229,15 @@ function renderUsers() {
     const created = u.created_at
       ? new Date(u.created_at + (u.created_at.endsWith('Z') ? '' : 'Z')).toLocaleDateString()
       : '—';
+    // Show agent link pill if this user has an extension/agent
+    const agentPill = u.extension
+      ? `<span style="background:#7c3aed22;color:#a78bfa;border:1px solid #7c3aed55;border-radius:4px;padding:1px 6px;font-size:9px;white-space:nowrap">🎧 Agent Ext ${u.extension}</span>`
+      : '<span style="color:var(--muted);font-size:10px">No ext</span>';
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td><strong>${u.username}</strong></td>
       <td>${badge}</td>
-      <td>${u.extension || '—'}</td>
+      <td>${agentPill}</td>
       <td>${created}</td>
       <td style="display:flex;gap:6px">
         <button class="btn btn-amber" style="padding:3px 10px;font-size:10px"
@@ -253,9 +257,12 @@ async function createUser() {
   const msgEl     = document.getElementById('u-msg');
   if (!username) { msgEl.style.color='#f87171'; msgEl.textContent='✗ Username required'; return; }
   try {
-    await api('POST', '/admin/users', { username, password, extension: extension || null, role });
+    const result = await api('POST', '/admin/users', { username, password, extension: extension || null, role });
+    const agentNote = result.agent_id
+      ? ` — also registered as dialer agent (Ext ${extension})`
+      : '';
     msgEl.style.color = '#4ade80';
-    msgEl.textContent = `✓ User "${username}" created (password: ${password})`;
+    msgEl.textContent = `✓ User "${username}" created (pw: ${password})${agentNote}`;
     document.getElementById('u-username').value = '';
     document.getElementById('u-password').value = '';
     document.getElementById('u-ext').value = '';

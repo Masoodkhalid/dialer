@@ -345,7 +345,7 @@ async def auth_me(payload: dict = Depends(require_any)):
 async def list_users(payload: dict = Depends(require_admin)):
     return [
         {"id": u.id, "username": u.username, "role": u.role,
-         "extension": u.extension, "created_at": u.created_at}
+         "extension": u.extension, "agent_id": u.agent_id, "created_at": u.created_at}
         for u in users.values()
     ]
 
@@ -357,16 +357,32 @@ async def create_user(body: UserCreate, payload: dict = Depends(require_admin)):
         raise HTTPException(400, "username required")
     if username in users:
         raise HTTPException(409, "Username already exists")
+
+    # Block duplicate extensions — each extension can only belong to one agent
+    if body.extension:
+        conflict = agent_mgr.by_extension(body.extension)
+        if conflict:
+            raise HTTPException(409, f"Extension {body.extension} is already assigned to agent '{conflict.name}'")
+
     user = User(
         username=username,
         password_hash=hash_password(body.password or "1234"),
         role=body.role,
         extension=body.extension,
     )
+
+    # Auto-register as a dialer agent when an extension is provided
+    if body.extension:
+        agent = Agent(name=username, extension=body.extension)
+        agent_mgr.register(agent)
+        user.agent_id = agent.id
+        logger.info("Auto-created agent '%s' ext=%s for user '%s'",
+                    username, body.extension, username)
+
     users[username] = user
     _save()
     return {"id": user.id, "username": user.username, "role": user.role,
-            "extension": user.extension, "created_at": user.created_at}
+            "extension": user.extension, "agent_id": user.agent_id, "created_at": user.created_at}
 
 
 @app.post("/admin/users/{username}/reset-password")
@@ -386,7 +402,11 @@ async def delete_user(username: str, payload: dict = Depends(require_admin)):
         raise HTTPException(404, "User not found")
     if username == payload.get("username"):
         raise HTTPException(400, "Cannot delete yourself")
-    users.pop(username)
+    user = users.pop(username)
+    # Remove the linked agent so the extension is freed
+    if user.agent_id:
+        agent_mgr.remove(user.agent_id)
+        await broadcast("agent_removed", {"agent_id": user.agent_id})
     _save()
     return {"status": "deleted"}
 

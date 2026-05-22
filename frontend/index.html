@@ -121,16 +121,14 @@
 
     <!-- Agents -->
     <section class="card" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
-      <div class="card-header">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-        Agents
+      <div class="card-header" style="justify-content:space-between">
+        <span style="display:flex;align-items:center;gap:6px">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Agents
+        </span>
+        <a href="/admin" style="font-size:10px;color:var(--purple);text-decoration:none;opacity:0.8">+ Manage in Admin →</a>
       </div>
-      <div class="input-row">
-        <input id="agent-name" type="text" placeholder="Name" class="input"/>
-        <input id="agent-ext"  type="text" placeholder="Ext" class="input" style="width:70px"/>
-        <button class="btn btn-purple" onclick="addAgent()">Add</button>
-      </div>
-      <div class="agent-list" id="agent-list"></div>
+      <div id="agent-list" class="agent-list"></div>
     </section>
 
   </aside>

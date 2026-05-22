@@ -24,6 +24,22 @@ class AgentManager:
         self._agents[agent.id] = agent
         return agent
 
+    def remove(self, agent_id: str) -> bool:
+        """Unregister an agent (called when the linked user is deleted)."""
+        agent = self._agents.pop(agent_id, None)
+        if agent:
+            task = self._wrap_up_tasks.pop(agent_id, None)
+            if task:
+                task.cancel()
+            self._ws_queues.pop(agent_id, None)
+            logger.info("Agent %s (%s) removed", agent.name, agent.extension)
+            return True
+        return False
+
+    def by_extension(self, extension: str) -> Optional[Agent]:
+        """Find an agent by SIP extension number."""
+        return next((a for a in self._agents.values() if a.extension == extension), None)
+
     def get(self, agent_id: str) -> Optional[Agent]:
         return self._agents.get(agent_id)
 

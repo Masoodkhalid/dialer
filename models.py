@@ -53,6 +53,7 @@ class User(BaseModel):
     password_hash: str
     role: UserRole = UserRole.USER
     extension: Optional[str] = None
+    agent_id: Optional[str] = None          # linked Agent.id (auto-created on user create)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

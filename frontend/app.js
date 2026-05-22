@@ -95,6 +95,9 @@ function handleMsg(type, data) {
     case 'agent_update':
       state.agents[data.id] = data; renderAgents(); break;
 
+    case 'agent_removed':
+      delete state.agents[data.agent_id]; renderAgents(); break;
+
     case 'campaign_started': case 'campaign_paused':
     case 'campaign_resumed': case 'campaign_stopped':
     case 'campaign_completed': case 'campaign_reset':
@@ -290,17 +293,6 @@ async function quickDial() {
 }
 
 // ── Agents ─────────────────────────────────────────────────────────────────────
-async function addAgent() {
-  const name = document.getElementById('agent-name').value.trim();
-  const ext  = document.getElementById('agent-ext').value.trim();
-  if (!name || !ext) return alert('Enter name and extension');
-  const ag = await api('POST', '/agents', { name, extension: ext });
-  state.agents[ag.id] = ag;
-  renderAgents();
-  document.getElementById('agent-name').value = '';
-  document.getElementById('agent-ext').value  = '';
-}
-
 async function toggleAgent(id) {
   const a = state.agents[id];
   if (!a) return;
@@ -334,7 +326,7 @@ function renderAgents() {
   list.innerHTML = '';
   const agents = Object.values(state.agents);
   if (!agents.length) {
-    list.innerHTML = '<div style="color:var(--muted);font-size:11px;text-align:center;padding:16px">No agents added yet</div>';
+    list.innerHTML = '<div style="color:var(--muted);font-size:11px;text-align:center;padding:16px">No agents yet — <a href="/admin" style="color:var(--purple)">add users in Admin Panel</a></div>';
     return;
   }
   agents.forEach(a => {
