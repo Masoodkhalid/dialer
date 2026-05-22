@@ -218,7 +218,7 @@ async def _global_on_answer(event) -> None:
         await agent_mgr.assign_call(agent.id, call.id)
         call.agent_id = agent.id
         try:
-            await esl.bridge_to_agent(call.fs_uuid, agent.extension)
+            await esl.bridge_to_agent(call.fs_uuid, agent.extension, call.contact.phone)
             logger.info("Quick-dial bridged %s → agent %s", call.contact.phone, agent.extension)
         except Exception as exc:
             logger.error("Bridge failed: %s", exc)

@@ -363,7 +363,7 @@ class DialerEngine:
         call.agent_id = agent.id
 
         try:
-            await self.esl.bridge_to_agent(call.fs_uuid, agent.extension)
+            await self.esl.bridge_to_agent(call.fs_uuid, agent.extension, call.contact.phone)
             logger.info("Bridged %s → agent %s (%s)", call.contact.phone,
                         agent.name, agent.extension)
         except Exception as exc:

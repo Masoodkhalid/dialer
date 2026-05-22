@@ -156,13 +156,15 @@ class ESLClient:
         job_uuid = await self.bgapi(f"originate {dial} &park()")
         return job_uuid, channel_uuid
 
-    async def bridge_to_agent(self, call_uuid: str, extension: str) -> str:
-        """Ring the agent and bridge them to the parked customer call.
-
-        originate user/{ext} &bridge({uuid}) is the correct FreeSWITCH
-        approach for predictive dialers — it rings the agent's SIP phone
-        and once they answer, connects them to the waiting customer.
-        """
+    async def bridge_to_agent(self, call_uuid: str, extension: str,
+                              caller_id: str = "") -> str:
+        """Ring the agent showing the customer's number as caller ID."""
+        if caller_id:
+            return await self.api(
+                f"originate {{origination_caller_id_number={caller_id},"
+                f"origination_caller_id_name={caller_id}}}"
+                f"user/{extension} &bridge({call_uuid})"
+            )
         return await self.api(f"originate user/{extension} &bridge({call_uuid})")
 
     async def hangup(self, call_uuid: str, cause: str = "NORMAL_CLEARING") -> str:
