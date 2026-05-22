@@ -16,6 +16,8 @@
   </div>
   <div class="nav-right">
     <span id="esl-badge" class="badge-pill offline">● Connecting…</span>
+    <span id="nav-user" style="font-size:11px;color:var(--muted)"></span>
+    <button class="btn btn-red" style="padding:3px 10px;font-size:11px" onclick="logout()">Logout</button>
     <span id="clock" class="nav-clock"></span>
   </div>
 </nav>
@@ -107,6 +109,9 @@
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.14 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.05 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 17z"/></svg>
         Quick Dial
       </div>
+      <select id="quick-did" class="input" style="margin-bottom:6px">
+        <option value="">— Select DID (caller ID) —</option>
+      </select>
       <div class="input-row">
         <input id="quick-number" type="text" placeholder="Phone number…" class="input"/>
         <button class="btn btn-green" onclick="quickDial()">📞 Dial</button>
@@ -166,7 +171,7 @@
           <thead>
             <tr>
               <th>Phone</th><th>Name</th><th>Duration</th><th>Disposition</th>
-              <th>Sentiment</th><th>Recording</th><th>AI Summary</th>
+              <th>SIP</th><th>Cause</th><th>Sentiment</th><th>Recording</th><th>AI Summary</th>
             </tr>
           </thead>
           <tbody id="history-tbody"></tbody>

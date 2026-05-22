@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Admin — AI Predictive Dialer</title>
+  <link rel="stylesheet" href="/static/style.css"/>
+  <style>
+    /* Admin-specific overrides */
+    .adm-layout { display:flex; flex:1; overflow:hidden; }
+    .adm-sidebar {
+      width:200px; flex-shrink:0; background:var(--surface);
+      border-right:1px solid var(--border); display:flex; flex-direction:column;
+      padding:16px 10px; gap:4px;
+    }
+    .adm-nav-item {
+      display:flex; align-items:center; gap:10px; padding:10px 12px;
+      border-radius:8px; cursor:pointer; color:var(--muted); font-size:13px;
+      font-weight:500; border:none; background:none; width:100%; text-align:left;
+      transition:background .15s, color .15s;
+    }
+    .adm-nav-item:hover { background:var(--surface2); color:var(--text); }
+    .adm-nav-item.active { background:rgba(124,58,237,.15); color:var(--purple-l); }
+    .adm-nav-label { font-size:10px; text-transform:uppercase; letter-spacing:.08em;
+                     color:var(--muted); padding:16px 12px 6px; font-weight:700; }
+    .adm-main { flex:1; overflow:auto; padding:24px; display:flex; flex-direction:column; gap:20px; }
+    .adm-section { display:none; flex-direction:column; gap:16px; }
+    .adm-section.active { display:flex; }
+    .adm-card {
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:var(--radius); padding:20px;
+    }
+    .adm-card-title {
+      font-size:13px; font-weight:700; color:var(--purple-l);
+      text-transform:uppercase; letter-spacing:.06em; margin-bottom:16px;
+      display:flex; align-items:center; gap:8px;
+    }
+    .stat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:12px; }
+    .stat-box {
+      background:var(--surface2); border:1px solid var(--border);
+      border-radius:10px; padding:16px; text-align:center;
+    }
+    .stat-box .val { font-size:28px; font-weight:800; color:var(--purple-l); }
+    .stat-box .lbl { font-size:10px; text-transform:uppercase; letter-spacing:.08em;
+                     color:var(--muted); margin-top:4px; }
+    .sip-grid { display:flex; flex-wrap:wrap; gap:8px; }
+    .sip-chip {
+      display:inline-flex; align-items:center; gap:6px; padding:5px 12px;
+      border-radius:999px; font-size:12px; font-weight:700;
+    }
+    .sip-2xx { background:#052e16; color:#4ade80; border:1px solid #166534; }
+    .sip-4xx { background:#1c1a05; color:#fbbf24; border:1px solid #78350f; }
+    .sip-5xx { background:#2d1515; color:#f87171; border:1px solid #7f1d1d; }
+    .sip-unk { background:var(--surface2); color:var(--muted); border:1px solid var(--border); }
+    .form-row { display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end; }
+    .form-group { display:flex; flex-direction:column; gap:4px; flex:1; min-width:120px; }
+    .form-group label { font-size:10px; text-transform:uppercase; letter-spacing:.06em;
+                        color:var(--muted); font-weight:600; }
+    .inline-btn { padding:8px 14px; white-space:nowrap; }
+    .user-badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:10px;
+                  font-weight:700; text-transform:uppercase; }
+    .user-badge-admin { background:rgba(124,58,237,.2); color:var(--purple-l); border:1px solid var(--purple); }
+    .user-badge-user  { background:var(--surface2); color:var(--muted); border:1px solid var(--border); }
+    .did-num { font-family:monospace; font-size:13px; }
+    .dot-active   { color:#4ade80; }
+    .dot-inactive { color:var(--muted); }
+    .filter-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+    .filter-row input, .filter-row select { max-width:180px; }
+    #report-table { font-size:11px; }
+    #report-table th { font-size:9px; }
+    .cause-chip { font-size:9px; padding:1px 6px; border-radius:4px;
+                  background:var(--surface2); color:var(--muted); }
+  </style>
+</head>
+<body>
+<nav>
+  <div class="nav-brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.14 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.05 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 17z"/></svg>
+    <span>Super Admin Panel</span>
+  </div>
+  <div class="nav-right">
+    <span id="adm-user" style="font-size:12px;color:var(--muted)"></span>
+    <button class="btn btn-red" style="padding:4px 12px;font-size:11px" onclick="logout()">Logout</button>
+    <span id="clock" class="nav-clock"></span>
+  </div>
+</nav>
+
+<div class="adm-layout">
+  <!-- Sidebar navigation -->
+  <aside class="adm-sidebar">
+    <div class="adm-nav-label">Menu</div>
+    <button class="adm-nav-item active" onclick="showSection('reports',this)">
+      📊 Reports
+    </button>
+    <button class="adm-nav-item" onclick="showSection('users',this)">
+      👥 Users
+    </button>
+    <button class="adm-nav-item" onclick="showSection('dids',this)">
+      📞 DIDs
+    </button>
+    <div style="flex:1"></div>
+    <button class="adm-nav-item" onclick="window.open('/','_blank')">
+      ↗ Dialer Dashboard
+    </button>
+  </aside>
+
+  <main class="adm-main">
+
+    <!-- ── REPORTS ── -->
+    <section id="sec-reports" class="adm-section active">
+
+      <!-- Summary cards -->
+      <div class="adm-card">
+        <div class="adm-card-title">📈 Call Summary</div>
+        <div class="stat-grid" id="summary-grid">
+          <div class="stat-box"><div class="val" id="s-total">—</div><div class="lbl">Total Calls</div></div>
+          <div class="stat-box"><div class="val" id="s-answered" style="color:#4ade80">—</div><div class="lbl">Answered</div></div>
+          <div class="stat-box"><div class="val" id="s-completed">—</div><div class="lbl">Completed</div></div>
+          <div class="stat-box"><div class="val" id="s-dropped" style="color:#f87171">—</div><div class="lbl">Dropped</div></div>
+          <div class="stat-box"><div class="val" id="s-failed" style="color:#fbbf24">—</div><div class="lbl">Failed</div></div>
+        </div>
+      </div>
+
+      <!-- SIP Code breakdown -->
+      <div class="adm-card">
+        <div class="adm-card-title">🔗 SIP Response Codes</div>
+        <div class="sip-grid" id="sip-grid">
+          <span style="color:var(--muted);font-size:12px">Loading…</span>
+        </div>
+      </div>
+
+      <!-- Hangup Cause breakdown -->
+      <div class="adm-card">
+        <div class="adm-card-title">📋 Hangup Causes</div>
+        <div class="sip-grid" id="cause-grid">
+          <span style="color:var(--muted);font-size:12px">Loading…</span>
+        </div>
+      </div>
+
+      <!-- Full call log -->
+      <div class="adm-card">
+        <div class="adm-card-title">📞 Full Call Log</div>
+        <div class="filter-row">
+          <input class="input" id="filter-phone" placeholder="Filter phone…" oninput="filterTable()"/>
+          <select class="input" id="filter-disp" onchange="filterTable()">
+            <option value="">All dispositions</option>
+            <option>answered</option><option>no-answer</option>
+          </select>
+          <select class="input" id="filter-sip" onchange="filterTable()">
+            <option value="">All SIP codes</option>
+          </select>
+          <button class="btn btn-reset inline-btn" onclick="exportCSV()">⬇ Export CSV</button>
+        </div>
+        <div class="table-wrap" style="max-height:450px">
+          <table id="report-table">
+            <thead>
+              <tr>
+                <th>Date/Time</th><th>Phone</th><th>Name</th><th>Campaign</th>
+                <th>DID</th><th>Agent</th><th>Duration</th><th>Status</th>
+                <th>SIP Code</th><th>Cause</th><th>Disposition</th><th>Recording</th>
+              </tr>
+            </thead>
+            <tbody id="report-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── USERS ── -->
+    <section id="sec-users" class="adm-section">
+      <div class="adm-card">
+        <div class="adm-card-title">➕ Create User</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Username</label>
+            <input class="input" id="u-username" placeholder="john.doe"/>
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input class="input" id="u-password" type="password" placeholder="Default: 1234"/>
+          </div>
+          <div class="form-group">
+            <label>Extension</label>
+            <input class="input" id="u-ext" placeholder="1001"/>
+          </div>
+          <div class="form-group">
+            <label>Role</label>
+            <select class="input" id="u-role">
+              <option value="user">User (Dialer)</option>
+              <option value="superadmin">Super Admin</option>
+            </select>
+          </div>
+          <button class="btn btn-purple inline-btn" onclick="createUser()">Add User</button>
+        </div>
+        <div id="u-msg" style="font-size:11px;margin-top:8px;min-height:16px"></div>
+      </div>
+
+      <div class="adm-card">
+        <div class="adm-card-title">👥 All Users</div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Username</th><th>Role</th><th>Extension</th><th>Created</th><th>Actions</th></tr>
+            </thead>
+            <tbody id="user-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── DIDs ── -->
+    <section id="sec-dids" class="adm-section">
+      <div class="adm-card">
+        <div class="adm-card-title">➕ Add DID</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Phone Number</label>
+            <input class="input" id="d-number" placeholder="12025551234"/>
+          </div>
+          <div class="form-group">
+            <label>Label</label>
+            <input class="input" id="d-label" placeholder="Main Office"/>
+          </div>
+          <button class="btn btn-purple inline-btn" onclick="addDid()">Add DID</button>
+        </div>
+        <div id="d-msg" style="font-size:11px;margin-top:8px;min-height:16px"></div>
+      </div>
+
+      <div class="adm-card">
+        <div class="adm-card-title">📞 DID Numbers</div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Number</th><th>Label</th><th>Status</th><th>Actions</th></tr>
+            </thead>
+            <tbody id="did-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="/static/admin.js"></script>
+</body>
+</html>

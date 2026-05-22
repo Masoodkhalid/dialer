@@ -77,12 +77,16 @@ class CallManager:
             call.agent_id = agent_id
         return call
 
-    def on_hangup(self, fs_uuid: str, cause: str = "") -> Optional[Call]:
+    def on_hangup(self, fs_uuid: str, cause: str = "", sip_code: str = "") -> Optional[Call]:
         call = self.by_fs_uuid(fs_uuid)
         terminal = {CallStatus.COMPLETED, CallStatus.FAILED}
         if not call or call.status in terminal:
             return None
         call.end_time = datetime.utcnow()
+        if cause:
+            call.hangup_cause = cause
+        if sip_code:
+            call.sip_code = sip_code
         if call.answer_time:
             call.duration = int((call.end_time - call.answer_time).total_seconds())
 

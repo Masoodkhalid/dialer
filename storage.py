@@ -20,7 +20,8 @@ def _default(obj: Any) -> Any:
     raise TypeError(f"Not serializable: {type(obj)}")
 
 
-def save(agents: list, campaigns: dict, calls: list) -> None:
+def save(agents: list, campaigns: dict, calls: list,
+         users: list = None, dids: list = None) -> None:
     """Write current state to disk."""
     try:
         data = {
@@ -28,6 +29,8 @@ def save(agents: list, campaigns: dict, calls: list) -> None:
             "campaigns": [c.model_dump(mode="json") for c in campaigns.values()],
             "calls":     [c.model_dump(mode="json") for c in calls
                           if c.status.value in ("completed", "dropped", "failed")],
+            "users":     [u.model_dump(mode="json") for u in (users or [])],
+            "dids":      [d.model_dump(mode="json") for d in (dids or [])],
         }
         tmp = STORAGE_FILE + ".tmp"
         with open(tmp, "w") as f:

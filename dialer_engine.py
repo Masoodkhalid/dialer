@@ -204,7 +204,7 @@ class DialerEngine:
         contact.dialed = True
         contact.dialed_at = datetime.utcnow()
 
-        call = Call(contact=contact, campaign_id=self.campaign.id)
+        call = Call(contact=contact, campaign_id=self.campaign.id, caller_id=self.caller_id)
         self.call_mgr.add(call)
 
         try:
@@ -286,13 +286,17 @@ class DialerEngine:
     async def _on_channel_hangup(self, event: ESLEvent) -> None:
         fs_uuid = event.unique_id
         cause = event.get("Hangup-Cause", "")
+        sip_code = (
+            event.get("variable_sip_term_status") or
+            event.get("variable_sip_invite_failure_status") or ""
+        )
         # Stop recording before closing the call
         if self.recording_enabled and fs_uuid:
             try:
                 await self.esl.api(f"uuid_record {fs_uuid} stop all")
             except Exception:
                 pass
-        call = self.call_mgr.on_hangup(fs_uuid, cause)
+        call = self.call_mgr.on_hangup(fs_uuid, cause, sip_code)
         if not call:
             return
 

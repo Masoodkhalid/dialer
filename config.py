@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
 
+    # Authentication
+    AUTH_SECRET_KEY: str = "dialer-change-me-in-production"
+    ADMIN_USERNAME: str = "admin"
+    ADMIN_PASSWORD: str = "Admin@1234"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

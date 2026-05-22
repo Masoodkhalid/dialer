@@ -15,12 +15,16 @@ import os
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from agent_manager import AgentManager
 from ai_analyzer import AIAnalyzer
+from auth import (
+    create_token, decode_token, get_payload, require_admin, require_any,
+    hash_password, verify_password,
+)
 from call_manager import CallManager
 from config import settings
 from dialer_engine import DialerEngine
@@ -37,6 +41,10 @@ from models import (
     CampaignCreate,
     CampaignStatus,
     Contact,
+    DID,
+    User,
+    UserCreate,
+    UserRole,
     WSMessage,
 )
 
@@ -56,40 +64,62 @@ ai = AIAnalyzer(api_key=settings.ANTHROPIC_API_KEY, model=settings.CLAUDE_MODEL)
 campaigns: Dict[str, Campaign] = {}
 engines: Dict[str, DialerEngine] = {}
 admin_ws_clients: List[WebSocket] = []
+users: Dict[str, User] = {}      # username → User
+dids: List[DID] = []
 
 
 def _save() -> None:
-    """Persist current state to disk."""
-    storage.save(agent_mgr.list_all(), campaigns, call_mgr.all_calls())
+    storage.save(agent_mgr.list_all(), campaigns, call_mgr.all_calls(),
+                 list(users.values()), dids)
 
 
 def _load_persisted() -> None:
-    """Restore agents, campaigns and call history from disk on startup."""
     data = storage.load()
-    if not data:
-        return
-    try:
-        for a in data.get("agents", []):
-            agent = Agent(**a)
-            agent_mgr.register(agent)
-        for c in data.get("campaigns", []):
-            campaign = Campaign(**c)
-            campaigns[campaign.id] = campaign
-        for c in data.get("calls", []):
-            call = Call(**c)
-            call_mgr.add(call)
-        logger.info("Loaded persisted state: %d agents, %d campaigns, %d calls",
-                    len(data.get("agents", [])),
-                    len(data.get("campaigns", [])),
-                    len(data.get("calls", [])))
-    except Exception as exc:
-        logger.error("Failed to restore persisted state: %s", exc)
+    if data:
+        try:
+            for a in data.get("agents", []):
+                agent_mgr.register(Agent(**a))
+            for c in data.get("campaigns", []):
+                campaign = Campaign(**c)
+                campaigns[campaign.id] = campaign
+            for c in data.get("calls", []):
+                call_mgr.add(Call(**c))
+            for u in data.get("users", []):
+                user = User(**u)
+                users[user.username] = user
+            for d in data.get("dids", []):
+                dids.append(DID(**d))
+            logger.info("Loaded persisted state: %d agents, %d campaigns, %d calls, %d users, %d DIDs",
+                        len(data.get("agents", [])), len(data.get("campaigns", [])),
+                        len(data.get("calls", [])), len(data.get("users", [])),
+                        len(data.get("dids", [])))
+        except Exception as exc:
+            logger.error("Failed to restore persisted state: %s", exc)
+
+    # Seed default admin if no users exist
+    if not users:
+        admin = User(
+            username=settings.ADMIN_USERNAME,
+            password_hash=hash_password(settings.ADMIN_PASSWORD),
+            role=UserRole.SUPERADMIN,
+        )
+        users[admin.username] = admin
+        logger.info("Created default superadmin: %s", admin.username)
+
+    # Seed configured DIDs if none exist
+    if not dids:
+        for number in [
+            "16823109571", "19284662191", "15594609869",
+            "17542038050", "18705690442",
+        ]:
+            dids.append(DID(number=number, label=f"DID {number[-4:]}"))
+        logger.info("Seeded %d default DIDs", len(dids))
+        _save()
 
 
 # ── WebSocket broadcast ────────────────────────────────────────────────────────
 
 def _json_default(obj):
-    """Handle datetime and other non-serializable types."""
     if hasattr(obj, "isoformat"):
         return obj.isoformat()
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
@@ -109,12 +139,8 @@ async def broadcast(event_type: str, data) -> None:
 
 async def on_dialer_event(event_type: str, data: dict) -> None:
     await broadcast(event_type, data)
-
-    # Save state whenever a call ends or campaign changes
     if event_type in ("call_ended", "campaign_completed", "campaign_stopped"):
         _save()
-
-    # Post-call AI analysis when a call ends with an agent
     if event_type == "call_ended":
         call_id = data.get("id")
         call = call_mgr.get(call_id)
@@ -135,9 +161,7 @@ async def _run_ai_analysis(call_id: str) -> None:
         )
         call_mgr.set_ai_analysis(call_id, summary, sentiment)
         await broadcast("call_ai_analysis", {
-            "call_id": call_id,
-            "summary": summary,
-            "sentiment": sentiment,
+            "call_id": call_id, "summary": summary, "sentiment": sentiment,
         })
     except Exception as exc:
         logger.error("AI analysis failed: %s", exc)
@@ -159,7 +183,7 @@ async def _global_on_background_job(event) -> None:
     body = event.get("body", "").strip()
     call = call_mgr.by_job_uuid(job_uuid)
     if not call or call.campaign_id != "quick":
-        return   # campaign calls handled by DialerEngine
+        return
     if body.startswith("+OK"):
         fs_uuid = body.split()[-1]
         call_mgr.set_fs_uuid(call.id, fs_uuid)
@@ -175,11 +199,10 @@ async def _global_on_answer(event) -> None:
     call = call_mgr.by_fs_uuid(fs_uuid)
     logger.info("CHANNEL_ANSWER call lookup → %s", call.id if call else "NOT FOUND")
     if not call or call.campaign_id != "quick":
-        return   # campaign calls handled by DialerEngine
+        return
     call = call_mgr.on_answered(fs_uuid)
     if not call:
         return
-    # Start recording
     if settings.RECORDING_ENABLED and call.fs_uuid:
         rec_file = f"{settings.RECORDING_DIR}/{call.id}.{settings.RECORDING_FORMAT}"
         try:
@@ -213,9 +236,13 @@ async def _global_on_hangup(event) -> None:
     fs_uuid = event.unique_id
     call = call_mgr.by_fs_uuid(fs_uuid)
     if not call or call.campaign_id != "quick":
-        return   # campaign calls handled by DialerEngine
+        return
     cause = event.get("Hangup-Cause", "")
-    call = call_mgr.on_hangup(fs_uuid, cause)
+    sip_code = (
+        event.get("variable_sip_term_status") or
+        event.get("variable_sip_invite_failure_status") or ""
+    )
+    call = call_mgr.on_hangup(fs_uuid, cause, sip_code)
     if not call:
         return
     if call.agent_id:
@@ -233,28 +260,18 @@ esl.add_handler("CHANNEL_HANGUP",  _global_on_hangup)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Restore persisted state before accepting requests
     _load_persisted()
-
     try:
         await esl.connect()
         await esl.subscribe(
-            "CHANNEL_CREATE",
-            "CHANNEL_ANSWER",
-            "CHANNEL_HANGUP",
-            "CHANNEL_BRIDGE",
-            "CHANNEL_UNBRIDGE",
-            "BACKGROUND_JOB",
-            "CUSTOM",
+            "CHANNEL_CREATE", "CHANNEL_ANSWER", "CHANNEL_HANGUP",
+            "CHANNEL_BRIDGE", "CHANNEL_UNBRIDGE", "BACKGROUND_JOB", "CUSTOM",
         )
         logger.info("FreeSWITCH ESL ready")
     except Exception as exc:
         logger.warning("Could not connect to FreeSWITCH ESL: %s", exc)
-        logger.warning("Running without ESL — use mock mode for testing")
-
     yield
-
-    _save()   # save on clean shutdown
+    _save()
     await esl.disconnect()
 
 
@@ -262,7 +279,7 @@ app = FastAPI(title="AI Predictive Dialer", version="1.0.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 
-# ── Dashboard root ─────────────────────────────────────────────────────────────
+# ── Page routes ────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
@@ -270,10 +287,168 @@ async def root():
         return f.read()
 
 
+@app.get("/login", response_class=HTMLResponse)
+async def login_page():
+    with open("frontend/login.html") as f:
+        return f.read()
+
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_page():
+    with open("frontend/admin.html") as f:
+        return f.read()
+
+
+# ── Auth endpoints ─────────────────────────────────────────────────────────────
+
+@app.post("/auth/login")
+async def auth_login(body: dict):
+    username = (body.get("username") or "").strip().lower()
+    password = body.get("password") or ""
+    user = users.get(username)
+    if not user or not verify_password(password, user.password_hash):
+        raise HTTPException(401, "Invalid username or password")
+    token = create_token(user.id, user.role, user.username)
+    return {"token": token, "role": user.role, "username": user.username}
+
+
+@app.get("/auth/me")
+async def auth_me(payload: dict = Depends(require_any)):
+    return {"username": payload.get("username"), "role": payload.get("role")}
+
+
+# ── Admin: User management ─────────────────────────────────────────────────────
+
+@app.get("/admin/users")
+async def list_users(payload: dict = Depends(require_admin)):
+    return [
+        {"id": u.id, "username": u.username, "role": u.role,
+         "extension": u.extension, "created_at": u.created_at}
+        for u in users.values()
+    ]
+
+
+@app.post("/admin/users")
+async def create_user(body: UserCreate, payload: dict = Depends(require_admin)):
+    username = body.username.strip().lower()
+    if not username:
+        raise HTTPException(400, "username required")
+    if username in users:
+        raise HTTPException(409, "Username already exists")
+    user = User(
+        username=username,
+        password_hash=hash_password(body.password or "1234"),
+        role=body.role,
+        extension=body.extension,
+    )
+    users[username] = user
+    _save()
+    return {"id": user.id, "username": user.username, "role": user.role,
+            "extension": user.extension, "created_at": user.created_at}
+
+
+@app.post("/admin/users/{username}/reset-password")
+async def reset_password(username: str, body: dict, payload: dict = Depends(require_admin)):
+    user = users.get(username)
+    if not user:
+        raise HTTPException(404, "User not found")
+    new_pw = (body.get("password") or "1234")
+    user.password_hash = hash_password(new_pw)
+    _save()
+    return {"status": "ok"}
+
+
+@app.delete("/admin/users/{username}")
+async def delete_user(username: str, payload: dict = Depends(require_admin)):
+    if username not in users:
+        raise HTTPException(404, "User not found")
+    if username == payload.get("username"):
+        raise HTTPException(400, "Cannot delete yourself")
+    users.pop(username)
+    _save()
+    return {"status": "deleted"}
+
+
+# ── Admin: DID management ──────────────────────────────────────────────────────
+
+@app.get("/admin/dids")
+async def list_dids(payload: dict = Depends(require_any)):
+    return dids
+
+
+@app.post("/admin/dids")
+async def add_did(body: dict, payload: dict = Depends(require_admin)):
+    number = (body.get("number") or "").strip()
+    if not number:
+        raise HTTPException(400, "number required")
+    did = DID(number=number, label=body.get("label") or f"DID {number[-4:]}")
+    dids.append(did)
+    _save()
+    return did
+
+
+@app.patch("/admin/dids/{did_id}")
+async def toggle_did(did_id: str, body: dict, payload: dict = Depends(require_admin)):
+    did = next((d for d in dids if d.id == did_id), None)
+    if not did:
+        raise HTTPException(404, "DID not found")
+    if "active" in body:
+        did.active = bool(body["active"])
+    if "label" in body:
+        did.label = body["label"]
+    _save()
+    return did
+
+
+@app.delete("/admin/dids/{did_id}")
+async def delete_did(did_id: str, payload: dict = Depends(require_admin)):
+    global dids
+    orig = len(dids)
+    dids = [d for d in dids if d.id != did_id]
+    if len(dids) == orig:
+        raise HTTPException(404, "DID not found")
+    _save()
+    return {"status": "deleted"}
+
+
+# ── Admin: Reports ─────────────────────────────────────────────────────────────
+
+@app.get("/admin/reports/calls")
+async def report_calls(payload: dict = Depends(require_admin)):
+    return [c.model_dump() for c in call_mgr.all_calls()]
+
+
+@app.get("/admin/reports/summary")
+async def report_summary(payload: dict = Depends(require_admin)):
+    calls = call_mgr.all_calls()
+    sip_codes: Dict[str, int] = {}
+    dispositions: Dict[str, int] = {}
+    causes: Dict[str, int] = {}
+    for c in calls:
+        code = c.sip_code or "—"
+        sip_codes[code] = sip_codes.get(code, 0) + 1
+        disp = c.disposition or "—"
+        dispositions[disp] = dispositions.get(disp, 0) + 1
+        cause = c.hangup_cause or "—"
+        causes[cause] = causes.get(cause, 0) + 1
+
+    answered = sum(1 for c in calls if c.answer_time)
+    return {
+        "total":        len(calls),
+        "answered":     answered,
+        "dropped":      sum(1 for c in calls if c.status == CallStatus.DROPPED),
+        "failed":       sum(1 for c in calls if c.status == CallStatus.FAILED),
+        "completed":    sum(1 for c in calls if c.status == CallStatus.COMPLETED),
+        "sip_codes":    sip_codes,
+        "dispositions": dispositions,
+        "hangup_causes": causes,
+    }
+
+
 # ── Campaign endpoints ─────────────────────────────────────────────────────────
 
 @app.post("/campaigns", response_model=Campaign)
-async def create_campaign(body: CampaignCreate):
+async def create_campaign(body: CampaignCreate, payload: dict = Depends(require_any)):
     c = Campaign(name=body.name)
     campaigns[c.id] = c
     _save()
@@ -281,12 +456,12 @@ async def create_campaign(body: CampaignCreate):
 
 
 @app.get("/campaigns", response_model=List[Campaign])
-async def list_campaigns():
+async def list_campaigns(payload: dict = Depends(require_any)):
     return list(campaigns.values())
 
 
 @app.get("/campaigns/{campaign_id}", response_model=Campaign)
-async def get_campaign(campaign_id: str):
+async def get_campaign(campaign_id: str, payload: dict = Depends(require_any)):
     c = campaigns.get(campaign_id)
     if not c:
         raise HTTPException(404, "Campaign not found")
@@ -294,11 +469,11 @@ async def get_campaign(campaign_id: str):
 
 
 @app.post("/campaigns/{campaign_id}/upload")
-async def upload_contacts(campaign_id: str, file: UploadFile):
+async def upload_contacts(campaign_id: str, file: UploadFile,
+                          payload: dict = Depends(require_any)):
     c = campaigns.get(campaign_id)
     if not c:
         raise HTTPException(404, "Campaign not found")
-
     content = await file.read()
     reader = csv.DictReader(io.StringIO(content.decode("utf-8-sig")))
     added = 0
@@ -313,7 +488,6 @@ async def upload_contacts(campaign_id: str, file: UploadFile):
         )
         c.contacts.append(contact)
         added += 1
-
     c.stats.contacts_total = len(c.contacts)
     c.stats.contacts_remaining = len(c.contacts)
     _save()
@@ -321,28 +495,19 @@ async def upload_contacts(campaign_id: str, file: UploadFile):
 
 
 @app.post("/campaigns/{campaign_id}/reset")
-async def reset_campaign(campaign_id: str):
-    """Mark all contacts as un-dialed and clear stats so the list can be run again."""
+async def reset_campaign(campaign_id: str, payload: dict = Depends(require_any)):
     c = campaigns.get(campaign_id)
     if not c:
         raise HTTPException(404, "Campaign not found")
-
-    # Stop the engine if it's running
     engine = engines.get(campaign_id)
     if engine:
         await engine.stop()
         engines.pop(campaign_id, None)
-
-    # Release all agents back to idle immediately so next Start works right away
     await agent_mgr.release_all_to_idle()
-
-    # Un-dial every contact
     for contact in c.contacts:
         contact.dialed = False
         contact.dialed_at = None
         contact.result = None
-
-    # Clear all stats
     from models import CampaignStats
     c.stats = CampaignStats(
         contacts_total=len(c.contacts),
@@ -351,33 +516,29 @@ async def reset_campaign(campaign_id: str):
     c.status = CampaignStatus.IDLE
     c.started_at = None
     c.completed_at = None
-
     await broadcast("campaign_reset", {
-        "id": c.id,
-        "name": c.name,
-        "status": c.status,
+        "id": c.id, "name": c.name, "status": c.status,
         "stats": c.stats.model_dump(),
     })
     return {"status": "reset", "contacts": len(c.contacts)}
 
 
 @app.post("/campaigns/{campaign_id}/start")
-async def start_campaign(campaign_id: str):
+async def start_campaign(campaign_id: str, body: dict = {},
+                         payload: dict = Depends(require_any)):
     c = campaigns.get(campaign_id)
     if not c:
         raise HTTPException(404, "Campaign not found")
     if not c.contacts:
         raise HTTPException(400, "No contacts loaded")
 
+    # Allow overriding caller_id with a specific DID
+    caller_id = (body or {}).get("caller_id") or settings.CALLER_ID_NUMBER
+
     engine = DialerEngine(
-        esl=esl,
-        agent_mgr=agent_mgr,
-        call_mgr=call_mgr,
-        campaign=c,
-        gateway=settings.SIP_GATEWAY,
-        caller_id=settings.CALLER_ID_NUMBER,
-        dial_prefix=settings.DIAL_PREFIX,
-        dial_timeout=settings.DIAL_TIMEOUT,
+        esl=esl, agent_mgr=agent_mgr, call_mgr=call_mgr, campaign=c,
+        gateway=settings.SIP_GATEWAY, caller_id=caller_id,
+        dial_prefix=settings.DIAL_PREFIX, dial_timeout=settings.DIAL_TIMEOUT,
         max_concurrent=settings.MAX_CONCURRENT_CALLS,
         drop_rate_limit=settings.DROP_RATE_LIMIT,
         pacing_interval=settings.PACING_INTERVAL,
@@ -393,7 +554,7 @@ async def start_campaign(campaign_id: str):
 
 
 @app.post("/campaigns/{campaign_id}/pause")
-async def pause_campaign(campaign_id: str):
+async def pause_campaign(campaign_id: str, payload: dict = Depends(require_any)):
     engine = engines.get(campaign_id)
     if not engine:
         raise HTTPException(404, "Campaign not running")
@@ -402,7 +563,7 @@ async def pause_campaign(campaign_id: str):
 
 
 @app.post("/campaigns/{campaign_id}/resume")
-async def resume_campaign(campaign_id: str):
+async def resume_campaign(campaign_id: str, payload: dict = Depends(require_any)):
     engine = engines.get(campaign_id)
     if not engine:
         raise HTTPException(404, "Campaign not running")
@@ -411,7 +572,7 @@ async def resume_campaign(campaign_id: str):
 
 
 @app.post("/campaigns/{campaign_id}/stop")
-async def stop_campaign(campaign_id: str):
+async def stop_campaign(campaign_id: str, payload: dict = Depends(require_any)):
     engine = engines.get(campaign_id)
     if not engine:
         raise HTTPException(404, "Campaign not running")
@@ -423,7 +584,7 @@ async def stop_campaign(campaign_id: str):
 # ── Agent endpoints ────────────────────────────────────────────────────────────
 
 @app.post("/agents", response_model=Agent)
-async def create_agent(body: AgentCreate):
+async def create_agent(body: AgentCreate, payload: dict = Depends(require_any)):
     agent = Agent(name=body.name, extension=body.extension)
     agent_mgr.register(agent)
     _save()
@@ -431,12 +592,12 @@ async def create_agent(body: AgentCreate):
 
 
 @app.get("/agents", response_model=List[Agent])
-async def list_agents():
+async def list_agents(payload: dict = Depends(require_any)):
     return agent_mgr.list_all()
 
 
 @app.post("/agents/login")
-async def agent_login(body: AgentLogin):
+async def agent_login(body: AgentLogin, payload: dict = Depends(require_any)):
     ok = await agent_mgr.login(body.agent_id)
     if not ok:
         raise HTTPException(404, "Agent not found")
@@ -444,13 +605,13 @@ async def agent_login(body: AgentLogin):
 
 
 @app.post("/agents/logout")
-async def agent_logout(body: AgentLogin):
+async def agent_logout(body: AgentLogin, payload: dict = Depends(require_any)):
     await agent_mgr.logout(body.agent_id)
     return {"status": "offline"}
 
 
 @app.post("/agents/break")
-async def agent_break(body: AgentLogin):
+async def agent_break(body: AgentLogin, payload: dict = Depends(require_any)):
     ok = await agent_mgr.set_break(body.agent_id)
     if not ok:
         raise HTTPException(400, "Cannot set break from current status")
@@ -458,7 +619,7 @@ async def agent_break(body: AgentLogin):
 
 
 @app.post("/agents/return")
-async def agent_return(body: AgentLogin):
+async def agent_return(body: AgentLogin, payload: dict = Depends(require_any)):
     ok = await agent_mgr.return_from_break(body.agent_id)
     if not ok:
         raise HTTPException(400, "Agent is not on break")
@@ -468,13 +629,12 @@ async def agent_return(body: AgentLogin):
 # ── Call endpoints ─────────────────────────────────────────────────────────────
 
 @app.get("/calls")
-async def list_calls():
+async def list_calls(payload: dict = Depends(require_any)):
     return [c.model_dump() for c in call_mgr.all_calls()]
 
 
 @app.post("/calls/{call_id}/hangup")
-async def hangup_call(call_id: str):
-    """Hang up an active call from the dashboard."""
+async def hangup_call(call_id: str, payload: dict = Depends(require_any)):
     call = call_mgr.get(call_id)
     if not call:
         raise HTTPException(404, "Call not found")
@@ -485,12 +645,8 @@ async def hangup_call(call_id: str):
 
 
 @app.get("/recordings/{filename}")
-async def serve_recording(filename: str, download: bool = False):
-    """Stream or download a call recording file.
-
-    Add ?download=true to get an attachment download instead of inline playback.
-    """
-    # Security: only allow safe filenames (UUID + extension)
+async def serve_recording(filename: str, download: bool = False,
+                          payload: dict = Depends(require_any)):
     import re
     if not re.match(r'^[\w\-]+\.(wav|mp3|ogg)$', filename):
         raise HTTPException(400, "Invalid filename")
@@ -506,30 +662,26 @@ async def serve_recording(filename: str, download: bool = False):
 
 
 @app.post("/calls/quick-dial")
-async def quick_dial(body: dict):
-    """Dial a single number immediately — useful for testing."""
+async def quick_dial(body: dict, payload: dict = Depends(require_any)):
     phone = (body.get("phone") or "").strip()
     if not phone:
         raise HTTPException(400, "phone required")
+    caller_id = (body.get("caller_id") or settings.CALLER_ID_NUMBER).strip()
 
     contact = Contact(phone=phone, name=body.get("name", "Quick Dial"))
-    call = Call(contact=contact, campaign_id="quick")
+    call = Call(contact=contact, campaign_id="quick", caller_id=caller_id)
     call_mgr.add(call)
 
     try:
         job_uuid, channel_uuid = await esl.originate(
-            phone,
-            settings.SIP_GATEWAY,
-            settings.CALLER_ID_NUMBER,
-            settings.DIAL_TIMEOUT,
+            phone, settings.SIP_GATEWAY, caller_id, settings.DIAL_TIMEOUT,
         )
         call.fs_job_uuid = job_uuid
         call_mgr._by_job_uuid[job_uuid] = call.id
-        # Pre-map channel UUID so CHANNEL_ANSWER is never missed
         call_mgr.set_fs_uuid(call.id, channel_uuid)
         call.status = CallStatus.RINGING
         await broadcast("call_dialing", call.model_dump())
-        logger.info("Quick dial: %s job=%s uuid=%s", phone, job_uuid, channel_uuid)
+        logger.info("Quick dial: %s job=%s uuid=%s caller=%s", phone, job_uuid, channel_uuid, caller_id)
         return {"status": "dialing", "call_id": call.id, "job_uuid": job_uuid}
     except Exception as exc:
         call.status = CallStatus.FAILED
@@ -538,24 +690,21 @@ async def quick_dial(body: dict):
 
 
 @app.post("/calls/disposition")
-async def set_disposition(body: AgentDisposition):
-    call = call_mgr.set_disposition(body.call_id, body.disposition,
-                                    body.notes or "")
+async def set_disposition(body: AgentDisposition, payload: dict = Depends(require_any)):
+    call = call_mgr.set_disposition(body.call_id, body.disposition, body.notes or "")
     if not call:
         raise HTTPException(404, "Call not found")
-    await broadcast("call_disposition", {"call_id": call.id,
-                                          "disposition": call.disposition})
+    await broadcast("call_disposition", {"call_id": call.id, "disposition": call.disposition})
     return {"status": "ok"}
 
 
 @app.post("/calls/{call_id}/ai-script")
-async def get_ai_script(call_id: str):
+async def get_ai_script(call_id: str, payload: dict = Depends(require_any)):
     call = call_mgr.get(call_id)
     if not call:
         raise HTTPException(404, "Call not found")
     script = await ai.generate_script_suggestion(
-        contact_name=call.contact.name,
-        product="our service",
+        contact_name=call.contact.name, product="our service",
     )
     return {"script": script}
 
@@ -563,32 +712,37 @@ async def get_ai_script(call_id: str):
 # ── WebSocket ──────────────────────────────────────────────────────────────────
 
 @app.websocket("/ws")
-async def admin_ws(ws: WebSocket):
+async def admin_ws(ws: WebSocket, token: Optional[str] = Query(None)):
+    # Verify token if provided (soft auth — allows unauthenticated for now)
+    if token:
+        payload = decode_token(token)
+        if not payload:
+            await ws.close(code=4001)
+            return
+
     await ws.accept()
     admin_ws_clients.append(ws)
 
-    # Send current snapshot including call history
     terminal = {CallStatus.COMPLETED, CallStatus.FAILED, CallStatus.DROPPED}
-    history = [c.model_dump() for c in call_mgr.all_calls()
-               if c.status in terminal]
+    history = [c.model_dump() for c in call_mgr.all_calls() if c.status in terminal]
     snapshot = {
         "agents":       [a.model_dump() for a in agent_mgr.list_all()],
         "campaigns":    [c.model_dump(exclude={"contacts"}) for c in campaigns.values()],
         "active_calls": [c.model_dump() for c in call_mgr.active()],
-        "history":      history[-200:],   # last 200 calls
+        "history":      history[-200:],
+        "dids":         [d.model_dump() for d in dids],
     }
     await ws.send_text(json.dumps({"type": "snapshot", "data": snapshot}, default=_json_default))
 
     try:
         while True:
-            await ws.receive_text()   # keep-alive; client can send pings
+            await ws.receive_text()
     except WebSocketDisconnect:
         admin_ws_clients.remove(ws)
 
 
 @app.websocket("/ws/agent/{agent_id}")
 async def agent_ws(ws: WebSocket, agent_id: str):
-    """Individual agent WebSocket for call assignments and push messages."""
     await ws.accept()
     q = agent_mgr.attach_ws_queue(agent_id)
 

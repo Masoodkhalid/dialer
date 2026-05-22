@@ -33,6 +33,11 @@ class AMDResult(str, Enum):
     UNKNOWN = "unknown"
 
 
+class UserRole(str, Enum):
+    USER = "user"
+    SUPERADMIN = "superadmin"
+
+
 class CampaignStatus(str, Enum):
     IDLE = "idle"
     RUNNING = "running"
@@ -41,6 +46,22 @@ class CampaignStatus(str, Enum):
 
 
 # ── Domain models ──────────────────────────────────────────────────────────────
+
+class User(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    username: str
+    password_hash: str
+    role: UserRole = UserRole.USER
+    extension: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class DID(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    number: str
+    label: Optional[str] = None
+    active: bool = True
+
 
 class Contact(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -81,6 +102,9 @@ class Call(BaseModel):
     ai_summary: Optional[str] = None
     ai_sentiment: Optional[str] = None
     campaign_id: str = ""
+    caller_id: Optional[str] = None        # DID / caller ID used
+    sip_code: Optional[str] = None         # SIP response code e.g. "200", "503"
+    hangup_cause: Optional[str] = None     # FreeSWITCH cause e.g. "NORMAL_CLEARING"
 
 
 class CampaignStats(BaseModel):
@@ -125,6 +149,13 @@ class AgentDisposition(BaseModel):
     call_id: str
     disposition: str
     notes: Optional[str] = None
+
+
+class UserCreate(BaseModel):
+    username: str
+    password: str = "1234"
+    role: UserRole = UserRole.USER
+    extension: Optional[str] = None
 
 
 class WSMessage(BaseModel):

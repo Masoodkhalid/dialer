@@ -1,10 +1,23 @@
 'use strict';
 
+// ── Auth guard ─────────────────────────────────────────────────────────────────
+const _authToken = localStorage.getItem('dialer_token');
+if (!_authToken) { window.location.href = '/login'; }
+const _username = localStorage.getItem('dialer_username') || '';
+const _navUser  = document.getElementById('nav-user');
+if (_navUser) _navUser.textContent = '👤 ' + _username;
+
+function logout() {
+  localStorage.clear();
+  window.location.href = '/login';
+}
+
 const state = {
   agents: {},
   campaigns: {},
   activeCalls: {},
   history: [],
+  dids: [],
   currentCampaignId: null,
 };
 
@@ -33,7 +46,8 @@ function setStatus(state) {
 }
 
 function startWebSocket() {
-  _ws = new WebSocket(`ws://${location.host}/ws`);
+  const tok = encodeURIComponent(_authToken || '');
+  _ws = new WebSocket(`ws://${location.host}/ws?token=${tok}`);
   _ws.onopen    = () => { setStatus('online'); _polling = false; };
   _ws.onmessage = ev => { const {type, data} = JSON.parse(ev.data); handleMsg(type, data); };
   _ws.onclose   = () => {
@@ -74,9 +88,8 @@ function handleMsg(type, data) {
       data.agents.forEach(a => (state.agents[a.id] = a));
       data.campaigns.forEach(c => (state.campaigns[c.id] = c));
       data.active_calls.forEach(c => (state.activeCalls[c.id] = c));
-      if (data.history) {
-        state.history = data.history.slice().reverse();
-      }
+      if (data.history) { state.history = data.history.slice().reverse(); }
+      if (data.dids)    { state.dids = data.dids; populateDIDSelect(); }
       refreshAll(); break;
 
     case 'agent_update':
@@ -236,15 +249,33 @@ async function hangupCall(callId) {
   }
 }
 
+// ── DID selector ───────────────────────────────────────────────────────────────
+function populateDIDSelect() {
+  const sel = document.getElementById('quick-did');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— Select DID (caller ID) —</option>';
+  state.dids.filter(d => d.active).forEach(d => {
+    const o = document.createElement('option');
+    o.value = d.number;
+    o.textContent = `${d.number}${d.label ? ' — ' + d.label : ''}`;
+    sel.appendChild(o);
+  });
+  if (cur) sel.value = cur;
+}
+
 // ── Quick Dial ─────────────────────────────────────────────────────────────────
 async function quickDial() {
   const num = document.getElementById('quick-number').value.trim();
+  const did = document.getElementById('quick-did')?.value || '';
   const res = document.getElementById('quick-result');
   if (!num) return;
   res.style.color = 'var(--muted)';
   res.textContent = '⏳ Dialing ' + num + '…';
   try {
-    await api('POST', '/calls/quick-dial', { phone: num, name: 'Quick Dial' });
+    const body = { phone: num, name: 'Quick Dial' };
+    if (did) body.caller_id = did;
+    await api('POST', '/calls/quick-dial', body);
     res.style.color = '#4ade80';
     res.textContent = '✓ Call placed — watch Active Calls tab';
     document.getElementById('quick-number').value = '';
@@ -375,15 +406,22 @@ function renderHistory() {
          </span>`
       : `<span class="no-recording">—</span>`;
 
+    const sipCode = c.sip_code || '—';
+    const sipCls  = sipCode === '—' ? '' :
+      parseInt(sipCode) >= 500 ? 'chip-failed' :
+      parseInt(sipCode) >= 400 ? 'chip-amd_check' : 'chip-bridged';
+
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td><span style="font-family:monospace">${c.contact.phone}</span></td>
       <td>${c.contact.name ?? '—'}</td>
       <td>${c.duration != null ? c.duration + 's' : '—'}</td>
       <td>${c.disposition ?? '—'}</td>
+      <td>${sipCode !== '—' ? `<span class="chip ${sipCls}" style="font-size:9px">${sipCode}</span>` : '—'}</td>
+      <td style="font-size:10px;color:var(--muted)">${c.hangup_cause || '—'}</td>
       <td>${sent ? `<span class="chip chip-${sent}">${sent}</span>` : '—'}</td>
       <td>${recHtml}</td>
-      <td style="max-width:260px;white-space:normal;font-size:11px;color:var(--muted)">${c.ai_summary ?? '—'}</td>`;
+      <td style="max-width:220px;white-space:normal;font-size:11px;color:var(--muted)">${c.ai_summary ?? '—'}</td>`;
     tbody.appendChild(tr);
   });
 }
@@ -398,9 +436,16 @@ function playRecording(path, phone) {
 
 // ── Utilities ──────────────────────────────────────────────────────────────────
 async function api(method, path, body) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  const opts = {
+    method,
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${_authToken}`,
+    },
+  };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(path, opts);
+  if (res.status === 401) { logout(); return; }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || res.statusText);
