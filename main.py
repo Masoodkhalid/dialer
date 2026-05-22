@@ -759,8 +759,9 @@ async def quick_dial(body: dict, payload: dict = Depends(require_any)):
     call_mgr.add(call)
 
     try:
+        dialed = f"{settings.DIAL_PREFIX}{phone}" if settings.DIAL_PREFIX else phone
         job_uuid, channel_uuid = await esl.originate(
-            phone, settings.SIP_GATEWAY, caller_id, settings.DIAL_TIMEOUT,
+            dialed, settings.SIP_GATEWAY, caller_id, settings.DIAL_TIMEOUT,
         )
         call.fs_job_uuid = job_uuid
         call_mgr._by_job_uuid[job_uuid] = call.id

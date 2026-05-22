@@ -123,6 +123,11 @@ function handleMsg(type, data) {
     case 'call_dialing': case 'call_answered': case 'call_bridged':
       state.activeCalls[data.id] = data; renderActiveCalls(); break;
 
+    case 'call_failed':
+      // call_failed payload is {call_id, reason} — remove from active, don't add to history
+      if (data.call_id) delete state.activeCalls[data.call_id];
+      renderActiveCalls(); break;
+
     case 'call_ended':
       delete state.activeCalls[data.id];
       if (['completed','dropped'].includes(data.status)) {
@@ -427,12 +432,10 @@ function renderHistory() {
              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
              Play
            </button>
-           <a href="/recordings/${c.recording_path}?download=true"
-              download="${c.recording_path}"
-              class="rec-btn" style="text-decoration:none">
+           <button class="rec-btn" onclick="downloadRecording('${c.recording_path}')" style="cursor:pointer">
              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
              Save
-           </a>
+           </button>
          </span>`
       : `<span class="no-recording">—</span>`;
 
@@ -475,6 +478,26 @@ async function playRecording(path, phone) {
     await _audioEl.play();
   } catch (e) {
     alert('Could not play recording: ' + e.message);
+  }
+}
+
+async function downloadRecording(path) {
+  try {
+    const res = await fetch(`/recordings/${path}?download=true`, {
+      headers: { 'Authorization': `Bearer ${_authToken}` },
+    });
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = path;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('Could not download recording: ' + e.message);
   }
 }
 

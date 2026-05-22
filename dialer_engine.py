@@ -240,9 +240,17 @@ class DialerEngine:
             return
 
         if body.startswith("+OK"):
-            fs_uuid = body.split()[-1]
-            self.call_mgr.set_fs_uuid(call.id, fs_uuid)
-            logger.debug("BACKGROUND_JOB: call %s → fs_uuid %s", call.id, fs_uuid)
+            result_uuid = body.split()[-1]
+            if call.fs_uuid and result_uuid != call.fs_uuid and call.agent_fs_uuid is None:
+                # Bridge job returned agent (Zoiper) leg UUID — register it so HANGUP finds it
+                call.agent_fs_uuid = result_uuid
+                self.call_mgr._by_fs_uuid[result_uuid] = call.id
+                logger.info("Bridge +OK: agent_uuid=%s registered for call=%s",
+                            result_uuid, call.id)
+            else:
+                # Originate job — confirm/update carrier UUID
+                self.call_mgr.set_fs_uuid(call.id, result_uuid)
+                logger.debug("BACKGROUND_JOB: call %s → fs_uuid %s", call.id, result_uuid)
         else:
             # Originate failed
             self.call_mgr.on_failed(job_uuid, body)
@@ -294,6 +302,22 @@ class DialerEngine:
         sip_vars = {k: v for k, v in event.items() if "sip" in k.lower()}
         logger.info("HANGUP fs=%s cause=%s sip_code=%s sip_vars=%s",
                     fs_uuid, cause, sip_code, sip_vars)
+
+        # ── Agent (Zoiper) leg hung up ─────────────────────────────────────────
+        # When Zoiper drops, the carrier leg stays alive in FreeSWITCH.
+        # Kill it explicitly so the call ends and the dashboard updates.
+        call = self.call_mgr.by_fs_uuid(fs_uuid)
+        if call and fs_uuid == call.agent_fs_uuid:
+            logger.info("Agent leg %s hung up → killing carrier leg %s", fs_uuid, call.fs_uuid)
+            if call.fs_uuid:
+                try:
+                    await self.esl.hangup(call.fs_uuid)
+                except Exception as exc:
+                    logger.warning("Could not hang up carrier leg: %s", exc)
+            # The CHANNEL_HANGUP for the carrier leg will arrive and do final cleanup
+            return
+
+        # ── Carrier leg hung up (normal path) ─────────────────────────────────
         # Stop recording before closing the call
         if self.recording_enabled and fs_uuid:
             try:
@@ -369,6 +393,7 @@ class DialerEngine:
 
         try:
             job = await self.esl.bridge_to_agent(call.fs_uuid, agent.extension, call.contact.phone)
+            self.call_mgr._by_job_uuid[job] = call.id   # register so BACKGROUND_JOB finds bridge +OK
             logger.info("Bridge dispatched job=%s: %s → agent %s (%s)",
                         job, call.contact.phone, agent.name, agent.extension)
         except Exception as exc:
