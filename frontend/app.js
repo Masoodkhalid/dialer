@@ -457,11 +457,25 @@ function renderHistory() {
 }
 
 // ── Recording playback ─────────────────────────────────────────────────────────
-let _audioEl = null;
-function playRecording(path, phone) {
+let _audioEl  = null;
+let _audioBlobUrl = null;
+async function playRecording(path, phone) {
   if (_audioEl) { _audioEl.pause(); _audioEl = null; }
-  _audioEl = new Audio(`/recordings/${path}`);
-  _audioEl.play().catch(e => alert('Could not play recording: ' + e.message));
+  if (_audioBlobUrl) { URL.revokeObjectURL(_audioBlobUrl); _audioBlobUrl = null; }
+  try {
+    // fetch with auth token (plain <audio> / new Audio() doesn't send headers)
+    const res = await fetch(`/recordings/${path}`, {
+      headers: { 'Authorization': `Bearer ${_authToken}` },
+    });
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const blob = await res.blob();
+    _audioBlobUrl = URL.createObjectURL(blob);
+    _audioEl = new Audio(_audioBlobUrl);
+    _audioEl.onended = () => { URL.revokeObjectURL(_audioBlobUrl); _audioBlobUrl = null; };
+    await _audioEl.play();
+  } catch (e) {
+    alert('Could not play recording: ' + e.message);
+  }
 }
 
 // ── Utilities ──────────────────────────────────────────────────────────────────
