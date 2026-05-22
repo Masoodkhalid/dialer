@@ -158,16 +158,21 @@ class ESLClient:
 
     async def bridge_to_agent(self, call_uuid: str, extension: str,
                               caller_id: str = "") -> str:
-        """Transfer the parked customer call to the agent's extension.
+        """Ring the agent and bridge them to the parked customer call.
 
-        Uses uuid_transfer which routes through the FreeSWITCH dialplan —
-        more reliable than originate &bridge() for cross-profile bridging.
-        Sets effective_caller_id so the agent sees the customer's number.
+        Uses originate &bridge() so FreeSWITCH acts as a B2BUA — the
+        carrier SIP session stays alive and the two legs are joined at
+        the media layer.  uuid_transfer must NOT be used here because it
+        sends BYE to the carrier, immediately killing the customer call.
         """
-        if caller_id:
-            await self.api(f"uuid_setvar {call_uuid} effective_caller_id_number {caller_id}")
-            await self.api(f"uuid_setvar {call_uuid} effective_caller_id_name {caller_id}")
-        return await self.api(f"uuid_transfer {call_uuid} -both user/{extension}")
+        cid = caller_id or "Dialer"
+        return await self.api(
+            f"originate {{"
+            f"origination_caller_id_number={cid},"
+            f"origination_caller_id_name={cid},"
+            f"ignore_early_media=true"
+            f"}}user/{extension} &bridge({call_uuid})"
+        )
 
     async def hangup(self, call_uuid: str, cause: str = "NORMAL_CLEARING") -> str:
         return await self.api(f"uuid_kill {call_uuid} {cause}")
