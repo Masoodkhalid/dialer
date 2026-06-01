@@ -142,7 +142,7 @@ class ESLClient:
         channel_uuid = str(uuid.uuid4())
 
         if re.match(r"^\d{1,3}(\.\d{1,3}){3}", gateway):
-            endpoint = f"sofia/internal/{phone}@{gateway}"
+            endpoint = f"sofia/internal/{phone}@{gateway}:5060"
         else:
             endpoint = f"sofia/gateway/{gateway}/{phone}"
 
