@@ -122,6 +122,11 @@ class CampaignStats(BaseModel):
     calls_failed: int = 0
     answer_rate: float = 0.0
     drop_rate: float = 0.0
+    # Hopper (batch) tracking
+    hopper_batch: int = 0       # current batch number (1-based)
+    hopper_total: int = 0       # total number of batches
+    hopper_size: int = 200      # contacts per batch
+    hopper_remaining: int = 0   # contacts left in current hopper
 
 
 class Campaign(BaseModel):

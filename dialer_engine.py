@@ -53,6 +53,7 @@ class DialerEngine:
         recording_dir: str = "/var/lib/freeswitch/recordings",
         recording_format: str = "wav",
         sip_domain: str = "",
+        hopper_size: int = 200,
         on_event: Optional[Callable[[str, dict], Coroutine]] = None,
     ) -> None:
         self.esl = esl
@@ -71,8 +72,12 @@ class DialerEngine:
         self.recording_dir = recording_dir
         self.recording_format = recording_format
         self.sip_domain = sip_domain
+        self.hopper_size = hopper_size
         self._on_event = on_event
 
+        # _full_queue  → all undialed contacts (entire list minus current hopper)
+        # _contact_queue → the active hopper batch being dialled right now (≤ hopper_size)
+        self._full_queue: List[Contact] = []
         self._contact_queue: List[Contact] = []
         self._dial_slowdown = 0   # penalty counter when drop rate is high
         self._pacing_task: Optional[asyncio.Task] = None
@@ -91,15 +96,32 @@ class DialerEngine:
             return
         self.campaign.status = CampaignStatus.RUNNING
         self.campaign.started_at = datetime.utcnow()
-        self._contact_queue = [c for c in self.campaign.contacts if not c.dialed]
+
+        # Build the full reservoir of undialed contacts
+        undialed = [c for c in self.campaign.contacts if not c.dialed]
+        self._full_queue = undialed
+        self._contact_queue = []
         self._dial_slowdown = 0
+
+        # Calculate total hopper batches upfront
+        total_batches = max(1, math.ceil(len(undialed) / self.hopper_size))
+
         # Reset stats so stale numbers from previous runs don't poison pacing
         from models import CampaignStats
-        self.campaign.stats = CampaignStats(contacts_total=len(self.campaign.contacts))
+        self.campaign.stats = CampaignStats(
+            contacts_total=len(self.campaign.contacts),
+            hopper_size=self.hopper_size,
+            hopper_total=total_batches,
+        )
+
+        # Load the first hopper batch
+        self._load_next_hopper()
         self._update_stats()
         self._pacing_task = asyncio.create_task(self._pacing_loop())
-        logger.info("Campaign '%s' started. Contacts: %d", self.campaign.name,
-                    len(self._contact_queue))
+        logger.info(
+            "Campaign '%s' started. Total=%d Hopper_size=%d Batches=%d",
+            self.campaign.name, len(undialed), self.hopper_size, total_batches,
+        )
         await self._emit("campaign_started", self.campaign.model_dump(exclude={"contacts"}))
 
     async def pause(self) -> None:
@@ -151,18 +173,52 @@ class DialerEngine:
             except Exception as exc:
                 logger.error("Pacing error: %s", exc, exc_info=True)
 
-            # Check completion INSIDE the loop — all contacts dialed + no active calls
+            # Current hopper batch exhausted and no active calls in-flight
             if not self._contact_queue and self.call_mgr.active_count() == 0:
-                self.campaign.status = CampaignStatus.COMPLETED
-                self.campaign.completed_at = datetime.utcnow()
-                await self._emit("campaign_completed", {
-                    "id":     self.campaign.id,
-                    "status": self.campaign.status,
-                    "stats":  self.campaign.stats.model_dump(),
-                })
-                break
+                if self._full_queue:
+                    # More contacts remain — advance to next hopper batch
+                    self._load_next_hopper()
+                    logger.info(
+                        "Hopper advanced → batch %d/%d (%d contacts)",
+                        self.campaign.stats.hopper_batch,
+                        self.campaign.stats.hopper_total,
+                        len(self._contact_queue),
+                    )
+                    await self._emit("hopper_advanced", {
+                        "id":     self.campaign.id,
+                        "batch":  self.campaign.stats.hopper_batch,
+                        "total":  self.campaign.stats.hopper_total,
+                        "size":   len(self._contact_queue),
+                        "stats":  self.campaign.stats.model_dump(),
+                    })
+                else:
+                    # All batches complete — campaign finished
+                    self.campaign.status = CampaignStatus.COMPLETED
+                    self.campaign.completed_at = datetime.utcnow()
+                    self._update_stats()
+                    await self._emit("campaign_completed", {
+                        "id":     self.campaign.id,
+                        "status": self.campaign.status,
+                        "stats":  self.campaign.stats.model_dump(),
+                    })
+                    break
 
             await asyncio.sleep(self.pacing_interval)
+
+    def _load_next_hopper(self) -> None:
+        """Pop the next batch of contacts from _full_queue into _contact_queue."""
+        batch = self._full_queue[:self.hopper_size]
+        self._full_queue = self._full_queue[self.hopper_size:]
+        self._contact_queue = batch
+        self.campaign.stats.hopper_batch += 1
+        self.campaign.stats.hopper_remaining = len(self._contact_queue)
+        logger.info(
+            "Hopper loaded batch %d/%d — %d contacts (full_queue remaining: %d)",
+            self.campaign.stats.hopper_batch,
+            self.campaign.stats.hopper_total,
+            len(self._contact_queue),
+            len(self._full_queue),
+        )
 
     async def _maybe_dial(self) -> None:
         if not self._contact_queue:
@@ -344,12 +400,27 @@ class DialerEngine:
         if call.status == CallStatus.DROPPED:
             self.campaign.stats.calls_dropped += 1
 
+        # ── Tag contact.result for disposition-based re-dialing ───────────────
+        if call.amd_result and call.amd_result.value == "machine":
+            call.contact.result = "machine"
+        elif call.status == CallStatus.DROPPED:
+            call.contact.result = "dropped"
+        elif call.status == CallStatus.COMPLETED:
+            call.contact.result = "answered"
+        elif sip_code == "486":
+            call.contact.result = "busy"
+        elif sip_code in ("480", "408") or cause in ("NO_ANSWER", "ORIGINATOR_CANCEL", "USER_NOT_REGISTERED"):
+            call.contact.result = "no_answer"
+        else:
+            call.contact.result = "failed"
+
         # Release the agent
         if call.agent_id:
             await self.agent_mgr.release_call(call.agent_id)
 
         self._update_stats()
-        logger.info("Hangup: %s cause=%s status=%s", call.contact.phone, cause, call.status)
+        logger.info("Hangup: %s cause=%s status=%s result=%s",
+                    call.contact.phone, cause, call.status, call.contact.result)
         await self._emit("call_ended", call.model_dump())
 
     async def _on_channel_bridge(self, event: ESLEvent) -> None:
@@ -422,7 +493,9 @@ class DialerEngine:
     def _update_stats(self) -> None:
         s = self.campaign.stats
         s.contacts_total = len(self.campaign.contacts)
-        s.contacts_remaining = len(self._contact_queue)
+        # contacts_remaining = undialed in current hopper + all contacts in full_queue
+        s.contacts_remaining = len(self._contact_queue) + len(self._full_queue)
+        s.hopper_remaining = len(self._contact_queue)
         dialed = s.contacts_dialed
         if dialed > 0:
             s.answer_rate = s.calls_answered / dialed

@@ -1098,3 +1098,83 @@ tbody tr:hover td { background: rgba(255,255,255,.025); }
 @media (max-width: 420px) {
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ── Re-dial Panel ───────────────────────────────────────────────────────────── */
+.redial-panel {
+  background: var(--surface);
+  border-top: 2px solid var(--purple);
+  padding: 10px 20px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.redial-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  color: var(--purple-l);
+  white-space: nowrap;
+}
+.redial-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+.redial-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.redial-stat {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text2);
+}
+.redial-green { border-color: var(--green-d);  color: var(--green-l); }
+.redial-amber { border-color: var(--amber-d);  color: var(--amber-l); }
+.redial-red   { border-color: var(--red-d);    color: var(--red-l);   }
+.redial-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+@media (max-width: 700px) {
+  .redial-panel { flex-direction: column; align-items: flex-start; }
+}
+
+/* ── Toast Notification ──────────────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+  z-index: 9999;
+  transition: transform .3s ease, opacity .3s ease;
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.toast.show {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+.toast-green  { border-color: var(--green);    color: var(--green-l);  }
+.toast-purple { border-color: var(--purple);   color: var(--purple-l); }
+.toast-amber  { border-color: var(--amber);    color: var(--amber-l);  }

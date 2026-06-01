@@ -161,7 +161,7 @@ async def broadcast(event_type: str, data) -> None:
 
 async def on_dialer_event(event_type: str, data: dict) -> None:
     await broadcast(event_type, data)
-    if event_type in ("call_ended", "campaign_completed", "campaign_stopped"):
+    if event_type in ("call_ended", "campaign_completed", "campaign_stopped", "hopper_advanced"):
         _save()
     if event_type == "call_ended":
         call_id = data.get("id")
@@ -742,14 +742,18 @@ async def start_campaign(campaign_id: str, body: dict = {},
     if not c.contacts:
         raise HTTPException(400, "No contacts loaded")
 
+    b = body or {}
     # Allow overriding caller_id with a specific DID
-    caller_id = (body or {}).get("caller_id") or settings.CALLER_ID_NUMBER
+    caller_id = b.get("caller_id") or settings.CALLER_ID_NUMBER
+    # Optional per-run overrides (admin can tune without touching .env)
+    hopper_size   = int(b.get("hopper_size",   200))
+    max_concurrent = int(b.get("max_concurrent", settings.MAX_CONCURRENT_CALLS))
 
     engine = DialerEngine(
         esl=esl, agent_mgr=agent_mgr, call_mgr=call_mgr, campaign=c,
         gateway=settings.SIP_GATEWAY, caller_id=caller_id,
         dial_prefix=settings.DIAL_PREFIX, dial_timeout=settings.DIAL_TIMEOUT,
-        max_concurrent=settings.MAX_CONCURRENT_CALLS,
+        max_concurrent=max_concurrent,
         drop_rate_limit=settings.DROP_RATE_LIMIT,
         pacing_interval=settings.PACING_INTERVAL,
         amd_enabled=settings.AMD_ENABLED,
@@ -757,11 +761,12 @@ async def start_campaign(campaign_id: str, body: dict = {},
         recording_dir=settings.RECORDING_DIR,
         recording_format=settings.RECORDING_FORMAT,
         sip_domain=settings.FS_SIP_DOMAIN or settings.FS_HOST,
+        hopper_size=hopper_size,
         on_event=on_dialer_event,
     )
     engines[campaign_id] = engine
     await engine.start()
-    return {"status": "running"}
+    return {"status": "running", "hopper_size": hopper_size, "max_concurrent": max_concurrent}
 
 
 @app.post("/campaigns/{campaign_id}/pause")
@@ -790,6 +795,82 @@ async def stop_campaign(campaign_id: str, payload: dict = Depends(require_any)):
     await engine.stop()
     engines.pop(campaign_id, None)
     return {"status": "stopped"}
+
+
+@app.post("/campaigns/{campaign_id}/redial")
+async def redial_campaign(campaign_id: str, body: dict = {},
+                          payload: dict = Depends(require_any)):
+    """
+    Re-queue contacts by their previous call result (disposition).
+
+    body.filter options:
+      "no_answer"  – SIP 480/408 or cause NO_ANSWER
+      "busy"       – SIP 486
+      "machine"    – detected as answering machine
+      "dropped"    – call was dropped (no available agent)
+      "failed"     – originate/carrier failure
+      "answered"   – completed calls (agent spoke to contact)
+      "unanswered" – everything except answered (no_answer + busy + machine + dropped + failed)
+      "all"        – reset every contact regardless of result
+    """
+    c = campaigns.get(campaign_id)
+    if not c:
+        raise HTTPException(404, "Campaign not found")
+
+    # Cannot redial a running campaign
+    if c.status == CampaignStatus.RUNNING:
+        raise HTTPException(400, "Stop or pause the campaign before redialling")
+
+    b = body or {}
+    flt = (b.get("filter") or "all").lower().strip()
+
+    VALID_FILTERS = {"no_answer", "busy", "machine", "dropped", "failed",
+                     "answered", "unanswered", "all"}
+    if flt not in VALID_FILTERS:
+        raise HTTPException(400, f"filter must be one of {sorted(VALID_FILTERS)}")
+
+    reset_count = 0
+    for contact in c.contacts:
+        if not contact.dialed:
+            # Never dialled — skip (already eligible)
+            continue
+
+        result = (contact.result or "").lower()
+
+        match = False
+        if flt == "all":
+            match = True
+        elif flt == "unanswered":
+            match = result in ("no_answer", "busy", "machine", "dropped", "failed", "")
+        else:
+            match = (result == flt)
+
+        if match:
+            contact.dialed = False
+            contact.dialed_at = None
+            contact.result = None
+            reset_count += 1
+
+    # Update stats to reflect new remaining count
+    undialed = sum(1 for ct in c.contacts if not ct.dialed)
+    from models import CampaignStats
+    c.stats = CampaignStats(
+        contacts_total=len(c.contacts),
+        contacts_remaining=undialed,
+        hopper_size=c.stats.hopper_size,
+    )
+    # Keep campaign in COMPLETED/IDLE so user can hit Start again
+    if c.status == CampaignStatus.COMPLETED:
+        c.status = CampaignStatus.IDLE
+
+    _save()
+    await broadcast("campaign_reset", {
+        "id": c.id, "name": c.name, "status": c.status,
+        "stats": c.stats.model_dump(),
+        "redial_filter": flt,
+        "redial_count": reset_count,
+    })
+    return {"status": "ready", "filter": flt, "reset": reset_count, "total_undialed": undialed}
 
 
 # ── Agent endpoints ────────────────────────────────────────────────────────────

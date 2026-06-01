@@ -109,6 +109,21 @@ function handleMsg(type, data) {
       }
       populateCampaignSelect();
       if (state.currentCampaignId === data.id) refreshStatsBar();
+      if (type === 'campaign_completed' && state.currentCampaignId === data.id) {
+        // Show a non-blocking toast
+        _showToast('🏁 Campaign complete! Choose contacts to re-dial below.', 'green');
+      }
+      break;
+
+    case 'hopper_advanced':
+      if (state.campaigns[data.id]) {
+        if (data.stats) state.campaigns[data.id].stats = data.stats;
+        state.campaigns[data.id].status = 'running';
+      }
+      if (state.currentCampaignId === data.id) {
+        refreshStatsBar();
+        _showToast(`📦 Hopper batch ${data.batch}/${data.total} loaded (${data.size} contacts)`, 'purple');
+      }
       break;
 
     // Live stats push — fires on every dial/answer/drop
@@ -239,6 +254,50 @@ function refreshStatsBar() {
   const dropRate = dialed > 0 ? Math.min(1, (s.calls_dropped  || 0) / dialed) : 0;
   setText('sb-ansrate',  (ansRate  * 100).toFixed(1) + '%');
   setText('sb-droprate', (dropRate * 100).toFixed(1) + '%');
+
+  // Hopper batch indicator
+  const hopperPill = document.getElementById('sb-hopper-pill');
+  const hopperEl   = document.getElementById('sb-hopper');
+  if (s.hopper_total && s.hopper_total > 1) {
+    hopperPill.style.display = '';
+    const rem = s.hopper_remaining ?? 0;
+    setText('sb-hopper', `Batch ${s.hopper_batch}/${s.hopper_total} · ${rem} left`);
+  } else if (s.hopper_total === 1) {
+    // Single batch — just show remaining
+    hopperPill.style.display = '';
+    setText('sb-hopper', `${s.hopper_remaining ?? 0} remaining`);
+  } else {
+    hopperPill.style.display = 'none';
+  }
+
+  // Show/hide re-dial panel when campaign completes
+  const redialPanel = document.getElementById('redial-panel');
+  if (redialPanel) {
+    const show = (c.status === 'completed');
+    redialPanel.style.display = show ? '' : 'none';
+    if (show) _buildRedialStats(c, s);
+  }
+}
+
+function _buildRedialStats(c, s) {
+  const el = document.getElementById('redial-stats');
+  if (!el) return;
+  const total    = s.contacts_total  || 0;
+  const answered = s.calls_answered  || 0;
+  const machine  = s.calls_machine   || 0;
+  const dropped  = s.calls_dropped   || 0;
+  const failed   = s.calls_failed    || 0;
+  // Estimate no_answer from remainder
+  const dialed   = s.contacts_dialed || 0;
+  const noAns    = Math.max(0, dialed - answered - machine - dropped - failed);
+  el.innerHTML = `
+    <span class="redial-stat redial-green">✓ Answered: ${answered}</span>
+    <span class="redial-stat redial-amber">📵 No Answer: ${noAns}</span>
+    <span class="redial-stat redial-amber">📟 Machine: ${machine}</span>
+    <span class="redial-stat redial-red">✕ Dropped: ${dropped}</span>
+    <span class="redial-stat redial-red">⚠ Failed: ${failed}</span>
+    <span class="redial-stat">Total: ${total}</span>
+  `;
 }
 
 async function uploadContacts(ev) {
@@ -285,6 +344,41 @@ async function campAction(action) {
   Object.assign(state.campaigns[id], await api('GET', `/campaigns/${id}`));
   populateCampaignSelect();
   refreshStatsBar();
+}
+
+async function redialCampaign() {
+  const id = state.currentCampaignId;
+  if (!id) return;
+  const flt = document.getElementById('redial-filter').value;
+  const res  = document.getElementById('redial-result');
+  res.style.color = 'var(--muted)';
+  res.textContent = '⏳ Preparing contacts…';
+  try {
+    const data = await api('POST', `/campaigns/${id}/redial`, { filter: flt });
+    res.style.color = 'var(--green)';
+    res.textContent = `✓ ${data.reset} contacts reset (${data.total_undialed} ready). Click ▶ Start to dial.`;
+    Object.assign(state.campaigns[id], await api('GET', `/campaigns/${id}`));
+    populateCampaignSelect();
+    refreshStatsBar();
+  } catch(e) {
+    res.style.color = 'var(--red)';
+    res.textContent = '✗ ' + e.message;
+  }
+}
+
+// ── Toast notifications ────────────────────────────────────────────────────────
+let _toastTimer = null;
+function _showToast(msg, color = 'green') {
+  let el = document.getElementById('toast-msg');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast-msg';
+    document.body.appendChild(el);
+  }
+  el.className = `toast toast-${color} show`;
+  el.textContent = msg;
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove('show'), 4000);
 }
 
 // ── Hangup ────────────────────────────────────────────────────────────────────
