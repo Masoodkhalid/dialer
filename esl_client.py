@@ -179,25 +179,35 @@ class ESLClient:
         """
         cid = caller_id or "Dialer"
 
-        if phone_type == "webphone" and sip_domain:
-            # Target only the WebRTC/WebSocket endpoint registered from the browser.
-            # transport=ws tells FreeSWITCH to skip Zoiper (UDP/TCP) and only ring
-            # the contact that registered over WebSocket (port 5066).
-            endpoint = f"sofia/internal/sip:{extension}@{sip_domain};transport=ws"
+        if phone_type == "webphone":
+            # WebRTC browser endpoint:
+            #   - Use user/{extension} so FreeSWITCH uses its internal registration lookup
+            #     and handles WebRTC DTLS/ICE/NAT automatically.
+            #   - Do NOT set absolute_codec_string — the browser negotiates OPUS/PCMU via SDP.
+            #   - Do NOT set proxy_media — let FreeSWITCH handle WebRTC media natively.
+            # Since Zoiper is typically unregistered when webphone mode is active,
+            # user/ will ring only the browser WebSocket endpoint.
+            endpoint = f"user/{extension}"
+            cmd = (
+                f"originate {{"
+                f"origination_caller_id_number={cid},"
+                f"origination_caller_id_name={cid},"
+                f"leg_timeout=30"
+                f"}}{endpoint} &park()"
+            )
             logger.info("bridge_to_agent: webphone mode → %s", endpoint)
         else:
-            # Default: ring all registered contacts for this extension (Zoiper / softphone)
+            # Softphone / Zoiper: force G.711 audio-only, stay in RTP path
             endpoint = f"user/{extension}"
-
-        cmd = (
-            f"originate {{"
-            f"origination_caller_id_number={cid},"
-            f"origination_caller_id_name={cid},"
-            f"proxy_media=true,"
-            f"absolute_codec_string=PCMU@8000h,PCMA@8000h,"
-            f"leg_timeout=30"
-            f"}}{endpoint} &park()"
-        )
+            cmd = (
+                f"originate {{"
+                f"origination_caller_id_number={cid},"
+                f"origination_caller_id_name={cid},"
+                f"proxy_media=true,"
+                f"absolute_codec_string=PCMU@8000h,PCMA@8000h,"
+                f"leg_timeout=30"
+                f"}}{endpoint} &park()"
+            )
         logger.info("bridge_to_agent → bgapi %s", cmd)
         job_uuid = await self.bgapi(cmd)
         logger.info("bridge_to_agent dispatched job=%s (call=%s ext=%s phone_type=%s)",
