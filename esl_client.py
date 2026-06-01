@@ -150,6 +150,8 @@ class ESLClient:
             f"{{origination_uuid={channel_uuid},"
             f"originate_timeout={timeout},"
             f"ignore_early_media=true,"
+            f"proxy_media=true,"
+            f"absolute_codec_string=PCMU@8000h,PCMA@8000h,"
             f"origination_caller_id_number={caller_id}}}"
             f"{endpoint}"
         )
@@ -178,6 +180,8 @@ class ESLClient:
             f"originate {{"
             f"origination_caller_id_number={cid},"
             f"origination_caller_id_name={cid},"
+            f"proxy_media=true,"
+            f"absolute_codec_string=PCMU@8000h,PCMA@8000h,"
             f"leg_timeout=30"
             f"}}user/{extension} &park()"
         )
