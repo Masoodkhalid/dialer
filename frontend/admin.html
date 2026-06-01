@@ -74,65 +74,110 @@
     <!-- ══ REPORTS ══ -->
     <section id="sec-reports" class="adm-section active">
 
-      <!-- Summary -->
+      <!-- KPI Cards -->
       <div class="adm-card">
         <div class="adm-card-title">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>
-            <line x1="6" y1="20" x2="6" y2="14"/>
+            <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
           </svg>
           Call Summary
+          <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="loadReports()">↻ Refresh</button>
         </div>
-        <div class="stat-grid">
-          <div class="stat-box">
-            <div class="val" id="s-total">—</div>
-            <div class="lbl">Total Calls</div>
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-val" id="s-total">—</div>
+            <div class="kpi-lbl">Total Calls</div>
           </div>
-          <div class="stat-box">
-            <div class="val" id="s-answered" style="color:var(--green)">—</div>
-            <div class="lbl">Answered</div>
+          <div class="kpi-card kpi-green">
+            <div class="kpi-val" id="s-answered">—</div>
+            <div class="kpi-lbl">Answered</div>
           </div>
-          <div class="stat-box">
-            <div class="val" id="s-completed">—</div>
-            <div class="lbl">Completed</div>
+          <div class="kpi-card kpi-blue">
+            <div class="kpi-val" id="s-completed">—</div>
+            <div class="kpi-lbl">Completed</div>
           </div>
-          <div class="stat-box">
-            <div class="val" id="s-dropped" style="color:var(--red)">—</div>
-            <div class="lbl">Dropped</div>
+          <div class="kpi-card kpi-amber">
+            <div class="kpi-val" id="s-dropped">—</div>
+            <div class="kpi-lbl">Dropped</div>
           </div>
-          <div class="stat-box">
-            <div class="val" id="s-failed" style="color:var(--amber)">—</div>
-            <div class="lbl">Failed</div>
+          <div class="kpi-card kpi-red">
+            <div class="kpi-val" id="s-failed">—</div>
+            <div class="kpi-lbl">Failed</div>
+          </div>
+          <div class="kpi-card kpi-green">
+            <div class="kpi-val" id="s-ans-rate">—</div>
+            <div class="kpi-lbl">Answer Rate</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-val" id="s-avg-dur">—</div>
+            <div class="kpi-lbl">Avg Duration</div>
+          </div>
+          <div class="kpi-card kpi-purple">
+            <div class="kpi-val" id="s-conn-rate">—</div>
+            <div class="kpi-lbl">Connect Rate</div>
           </div>
         </div>
       </div>
 
-      <!-- SIP Codes -->
-      <div class="adm-card">
-        <div class="adm-card-title">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-          </svg>
-          SIP Response Codes
+      <!-- SIP + Causes (2-col) -->
+      <div class="adm-two-col">
+
+        <!-- SIP Codes -->
+        <div class="adm-card" style="flex:1;min-width:0">
+          <div class="adm-card-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+            </svg>
+            SIP Response Codes
+          </div>
+          <div class="bar-list" id="sip-bars"><span style="color:var(--muted);font-size:12px">Loading…</span></div>
         </div>
-        <div class="sip-grid" id="sip-grid">
-          <span class="text-muted" style="font-size:12px">Loading…</span>
+
+        <!-- Hangup Causes -->
+        <div class="adm-card" style="flex:1;min-width:0">
+          <div class="adm-card-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            Hangup Causes
+          </div>
+          <div class="bar-list" id="cause-bars"><span style="color:var(--muted);font-size:12px">Loading…</span></div>
         </div>
+
       </div>
 
-      <!-- Hangup Causes -->
-      <div class="adm-card">
-        <div class="adm-card-title">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>
-            <line x1="12" y1="16" x2="12.01" y2="16"/>
-          </svg>
-          Hangup Causes
+      <!-- Agent Performance + Dispositions (2-col) -->
+      <div class="adm-two-col">
+
+        <!-- Agent Performance -->
+        <div class="adm-card" style="flex:1;min-width:0">
+          <div class="adm-card-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+            Agent Performance
+          </div>
+          <div style="overflow:auto;border-radius:var(--radius);border:1px solid var(--border)">
+            <table style="font-size:12px">
+              <thead><tr><th>Agent</th><th style="text-align:center">Calls</th><th style="text-align:center">Connected</th><th style="text-align:center">Avg Duration</th></tr></thead>
+              <tbody id="agent-perf-tbody"><tr><td colspan="4" style="text-align:center;color:var(--muted)">Loading…</td></tr></tbody>
+            </table>
+          </div>
         </div>
-        <div class="sip-grid" id="cause-grid">
-          <span class="text-muted" style="font-size:12px">Loading…</span>
+
+        <!-- Dispositions -->
+        <div class="adm-card" style="flex:1;min-width:0">
+          <div class="adm-card-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+            </svg>
+            Call Dispositions
+          </div>
+          <div class="bar-list" id="disp-bars"><span style="color:var(--muted);font-size:12px">Loading…</span></div>
         </div>
+
       </div>
 
       <!-- Full Call Log -->
@@ -142,33 +187,58 @@
             <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.14 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.05 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 17z"/>
           </svg>
           Full Call Log
+          <span id="log-count" style="margin-left:6px;font-size:10px;color:var(--muted);font-weight:400"></span>
+          <button class="btn btn-reset btn-sm" style="margin-left:auto" onclick="exportCSV()">⬇ Export CSV</button>
         </div>
-        <div class="filter-row">
-          <input class="input" id="filter-phone" placeholder="Filter phone…" oninput="filterTable()" style="max-width:160px"/>
-          <select class="input" id="filter-disp" onchange="filterTable()" style="max-width:160px">
-            <option value="">All dispositions</option>
-            <option>answered</option>
-            <option>no-answer</option>
+
+        <!-- Filters row 1 -->
+        <div class="filter-row" style="flex-wrap:wrap;gap:6px;margin-bottom:6px">
+          <input class="input" id="filter-search" placeholder="🔍 Phone or name…" oninput="filterTable()" style="max-width:180px"/>
+          <select class="input" id="filter-agent" onchange="filterTable()" style="max-width:160px">
+            <option value="">All agents</option>
           </select>
-          <select class="input" id="filter-sip" onchange="filterTable()" style="max-width:160px">
+          <select class="input" id="filter-campaign" onchange="filterTable()" style="max-width:160px">
+            <option value="">All campaigns</option>
+          </select>
+          <select class="input" id="filter-status" onchange="filterTable()" style="max-width:140px">
+            <option value="">All statuses</option>
+            <option value="completed">Completed</option>
+            <option value="dropped">Dropped</option>
+            <option value="failed">Failed</option>
+            <option value="answered">Answered</option>
+          </select>
+        </div>
+        <!-- Filters row 2 -->
+        <div class="filter-row" style="flex-wrap:wrap;gap:6px;margin-bottom:10px">
+          <select class="input" id="filter-sip" onchange="filterTable()" style="max-width:200px">
             <option value="">All SIP codes</option>
           </select>
-          <button class="btn btn-ghost btn-sm" onclick="loadReports()">↻ Refresh</button>
-          <button class="btn btn-reset btn-sm" onclick="exportCSV()">⬇ CSV</button>
+          <select class="input" id="filter-cause" onchange="filterTable()" style="max-width:200px">
+            <option value="">All hangup causes</option>
+          </select>
+          <select class="input" id="filter-disp" onchange="filterTable()" style="max-width:160px">
+            <option value="">All dispositions</option>
+          </select>
+          <input class="input" id="filter-date-from" type="date" onchange="filterTable()" style="max-width:150px" title="From date"/>
+          <input class="input" id="filter-date-to"   type="date" onchange="filterTable()" style="max-width:150px" title="To date"/>
+          <button class="btn btn-ghost btn-sm" onclick="clearFilters()">✕ Clear</button>
         </div>
-        <div style="overflow:auto;max-height:420px;border-radius:var(--radius);border:1px solid var(--border)">
+
+        <div style="overflow:auto;max-height:500px;border-radius:var(--radius);border:1px solid var(--border)">
           <table id="report-table" style="font-size:11px">
             <thead>
               <tr>
                 <th>Date/Time</th><th>Phone</th><th>Name</th><th>Campaign</th>
-                <th>DID</th><th>Agent</th><th>Duration</th><th>Status</th>
-                <th>SIP Code</th><th>Cause</th><th>Disposition</th><th>Recording</th>
+                <th>Agent</th><th>DID</th><th>Duration</th><th>Status</th>
+                <th>SIP Code</th><th>Hangup Cause</th><th>AMD</th>
+                <th>Disposition</th><th>Sentiment</th><th>Recording</th>
               </tr>
             </thead>
             <tbody id="report-tbody"></tbody>
           </table>
         </div>
       </div>
+
     </section>
 
     <!-- ══ USERS ══ -->

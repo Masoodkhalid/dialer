@@ -572,7 +572,22 @@ async def delete_did(did_id: str, payload: dict = Depends(require_admin)):
 
 @app.get("/admin/reports/calls")
 async def report_calls(payload: dict = Depends(require_admin)):
-    return [c.model_dump() for c in call_mgr.all_calls()]
+    result = []
+    for c in call_mgr.all_calls():
+        d = c.model_dump()
+        # Enrich with human-readable names (avoids ID lookups in JS)
+        d["agent_name"] = None
+        if c.agent_id:
+            ag = agent_mgr.get(c.agent_id)
+            if ag:
+                d["agent_name"] = ag.name
+        d["campaign_name"] = None
+        if c.campaign_id == "quick":
+            d["campaign_name"] = "Quick Dial"
+        elif c.campaign_id and c.campaign_id in campaigns:
+            d["campaign_name"] = campaigns[c.campaign_id].name
+        result.append(d)
+    return result
 
 
 @app.get("/admin/reports/summary")
@@ -581,24 +596,62 @@ async def report_summary(payload: dict = Depends(require_admin)):
     sip_codes: Dict[str, int] = {}
     dispositions: Dict[str, int] = {}
     causes: Dict[str, int] = {}
-    for c in calls:
-        code = c.sip_code or "—"
-        sip_codes[code] = sip_codes.get(code, 0) + 1
-        disp = c.disposition or "—"
-        dispositions[disp] = dispositions.get(disp, 0) + 1
-        cause = c.hangup_cause or "—"
-        causes[cause] = causes.get(cause, 0) + 1
+    statuses: Dict[str, int] = {}
+    total_dur = 0
+    dur_count = 0
 
-    answered = sum(1 for c in calls if c.answer_time)
+    for c in calls:
+        sip_codes[c.sip_code or "—"]       = sip_codes.get(c.sip_code or "—", 0) + 1
+        dispositions[c.disposition or "—"] = dispositions.get(c.disposition or "—", 0) + 1
+        causes[c.hangup_cause or "—"]      = causes.get(c.hangup_cause or "—", 0) + 1
+        st = c.status.value if hasattr(c.status, "value") else str(c.status)
+        statuses[st] = statuses.get(st, 0) + 1
+        if c.duration:
+            total_dur += c.duration
+            dur_count += 1
+
+    answered    = sum(1 for c in calls if c.answer_time)
+    total       = len(calls)
+    avg_dur     = round(total_dur / dur_count) if dur_count else 0
+    answer_rate = round(answered / total * 100, 1) if total else 0.0
+
+    # Per-agent performance
+    perf: Dict[str, dict] = {}
+    for c in calls:
+        if not c.agent_id:
+            continue
+        ag   = agent_mgr.get(c.agent_id)
+        name = ag.name if ag else c.agent_id[:8]
+        if name not in perf:
+            perf[name] = {"calls": 0, "total_dur": 0, "answered": 0}
+        perf[name]["calls"] += 1
+        if c.duration:
+            perf[name]["total_dur"] += c.duration
+            perf[name]["answered"]  += 1
+
+    agent_perf = [
+        {
+            "name":         name,
+            "calls":        d["calls"],
+            "answered":     d["answered"],
+            "avg_duration": round(d["total_dur"] / d["answered"]) if d["answered"] else 0,
+        }
+        for name, d in sorted(perf.items(), key=lambda x: -x[1]["calls"])
+    ]
+
     return {
-        "total":        len(calls),
-        "answered":     answered,
-        "dropped":      sum(1 for c in calls if c.status == CallStatus.DROPPED),
-        "failed":       sum(1 for c in calls if c.status == CallStatus.FAILED),
-        "completed":    sum(1 for c in calls if c.status == CallStatus.COMPLETED),
-        "sip_codes":    sip_codes,
-        "dispositions": dispositions,
-        "hangup_causes": causes,
+        "total":             total,
+        "answered":          answered,
+        "dropped":           sum(1 for c in calls if c.status == CallStatus.DROPPED),
+        "failed":            sum(1 for c in calls if c.status == CallStatus.FAILED),
+        "completed":         sum(1 for c in calls if c.status == CallStatus.COMPLETED),
+        "avg_duration":      avg_dur,
+        "answer_rate":       answer_rate,
+        "sip_codes":         sip_codes,
+        "dispositions":      dispositions,
+        "hangup_causes":     causes,
+        "statuses":          statuses,
+        "agent_performance": agent_perf,
     }
 
 

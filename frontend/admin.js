@@ -79,72 +79,222 @@ async function loadReports() {
     ]);
     _allCalls = calls;
     renderSummary(summary);
-    renderSipGrid(summary.sip_codes);
-    renderCauseGrid(summary.hangup_causes);
-    buildSipFilter(summary.sip_codes);
-    renderReportTable(_allCalls);
+    renderBars('sip-bars',   summary.sip_codes,    sipBarColor);
+    renderBars('cause-bars', summary.hangup_causes, causeBarColor);
+    renderBars('disp-bars',  summary.dispositions,  () => 'bar-purple');
+    renderAgentPerf(summary.agent_performance);
+    buildDropdowns(calls, summary);
+    filterTable();
   } catch (err) {
     console.error('Reports load error:', err);
   }
 }
 
+// ── Formatters ─────────────────────────────────────────────────────────────────
+function fmtDur(sec) {
+  if (!sec && sec !== 0) return '—';
+  if (sec < 60)  return sec + 's';
+  return Math.floor(sec / 60) + 'm ' + (sec % 60) + 's';
+}
+
+function sipLabel(code) {
+  const map = {
+    '200':'200 OK', '180':'180 Ringing', '183':'183 Progress',
+    '404':'404 Not Found', '480':'480 Unavailable', '486':'486 Busy',
+    '487':'487 Cancelled', '488':'488 Not Acceptable',
+    '503':'503 Unavailable', '408':'408 Timeout',
+    '403':'403 Forbidden', '401':'401 Unauthorized',
+    '500':'500 Server Error', '603':'603 Declined',
+  };
+  return map[code] || (code && code !== '—' ? code : '—');
+}
+
+function sipBarColor(code) {
+  if (!code || code === '—') return 'bar-gray';
+  const n = parseInt(code);
+  if (n >= 200 && n < 300) return 'bar-green';
+  if (n >= 400 && n < 500) return 'bar-amber';
+  if (n >= 500)             return 'bar-red';
+  return 'bar-gray';
+}
+
+function causeBarColor(cause) {
+  if (!cause || cause === '—') return 'bar-gray';
+  if (cause === 'NORMAL_CLEARING')                              return 'bar-green';
+  if (cause.includes('TIMEOUT') || cause.includes('NO_ANSWER')) return 'bar-amber';
+  if (cause.includes('BUSY') || cause.includes('REJECT'))       return 'bar-red';
+  return 'bar-purple';
+}
+
+// ── KPI Cards ──────────────────────────────────────────────────────────────────
 function renderSummary(s) {
-  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v ?? '—'; };
   set('s-total',     s.total);
   set('s-answered',  s.answered);
   set('s-completed', s.completed);
   set('s-dropped',   s.dropped);
   set('s-failed',    s.failed);
+  set('s-ans-rate',  s.answer_rate != null ? s.answer_rate + '%' : '—');
+  set('s-avg-dur',   fmtDur(s.avg_duration));
+  const connRate = s.total > 0 ? ((s.answered / s.total) * 100).toFixed(1) + '%' : '—';
+  set('s-conn-rate', connRate);
 }
 
-function sipClass(code) {
-  if (!code || code === '—') return 'sip-unk';
-  const n = parseInt(code);
-  if (n >= 200 && n < 300) return 'sip-2xx';
-  if (n >= 400 && n < 500) return 'sip-4xx';
-  if (n >= 500)             return 'sip-5xx';
-  return 'sip-unk';
+// ── Bar Charts ─────────────────────────────────────────────────────────────────
+function renderBars(containerId, data, colorFn) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const entries = Object.entries(data || {})
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 14);
+  const total = entries.reduce((s, [, v]) => s + v, 0);
+  if (!entries.length || total === 0) {
+    el.innerHTML = '<span style="color:var(--muted);font-size:12px">No data yet</span>';
+    return;
+  }
+  el.innerHTML = entries.map(([key, count]) => {
+    const pct    = ((count / total) * 100).toFixed(1);
+    const barPct = Math.max(2, (count / total) * 100);
+    const cls    = colorFn ? colorFn(key) : 'bar-purple';
+    const label  = containerId === 'sip-bars' ? sipLabel(key) : key;
+    return `<div class="bar-row">
+      <span class="bar-label" title="${key}">${label}</span>
+      <div class="bar-track"><div class="bar-fill ${cls}" style="width:${barPct}%"></div></div>
+      <span class="bar-count">${count}<span class="bar-pct"> (${pct}%)</span></span>
+    </div>`;
+  }).join('');
 }
 
-function sipLabel(code) {
-  const map = {
-    '200': '200 OK',        '404': '404 Not Found',
-    '480': '480 Unavailable','486': '486 Busy',
-    '487': '487 Cancelled', '488': '488 Not Acceptable',
-    '503': '503 Service Unavailable','408': '408 Timeout',
-    '403': '403 Forbidden', '401': '401 Unauthorized',
-  };
-  return map[code] || (code || '—');
+// ── Agent Performance Table ────────────────────────────────────────────────────
+function renderAgentPerf(agents) {
+  const el = document.getElementById('agent-perf-tbody');
+  if (!el) return;
+  if (!agents || !agents.length) {
+    el.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted)">No agent data yet</td></tr>';
+    return;
+  }
+  el.innerHTML = agents.map(a => {
+    const connRate = a.calls > 0 ? ((a.answered / a.calls) * 100).toFixed(0) + '%' : '—';
+    return `<tr>
+      <td><strong>${a.name}</strong></td>
+      <td style="text-align:center">${a.calls}</td>
+      <td style="text-align:center">
+        <span style="color:var(--green)">${a.answered}</span>
+        <span style="color:var(--muted);font-size:10px"> (${connRate})</span>
+      </td>
+      <td style="text-align:center">${fmtDur(a.avg_duration)}</td>
+    </tr>`;
+  }).join('');
 }
 
-function renderSipGrid(codes) {
-  const el = document.getElementById('sip-grid');
-  const entries = Object.entries(codes).sort((a, b) => b[1] - a[1]);
-  if (!entries.length) { el.innerHTML = '<span style="color:var(--muted);font-size:12px">No data yet</span>'; return; }
-  el.innerHTML = entries.map(([code, count]) =>
-    `<span class="sip-chip ${sipClass(code)}">${sipLabel(code)} <strong>${count}</strong></span>`
-  ).join('');
-}
-
-function renderCauseGrid(causes) {
-  const el = document.getElementById('cause-grid');
-  const entries = Object.entries(causes).sort((a, b) => b[1] - a[1]);
-  if (!entries.length) { el.innerHTML = '<span style="color:var(--muted);font-size:12px">No data yet</span>'; return; }
-  el.innerHTML = entries.map(([cause, count]) =>
-    `<span class="sip-chip sip-unk">${cause} <strong>${count}</strong></span>`
-  ).join('');
-}
-
-function buildSipFilter(codes) {
-  const sel = document.getElementById('filter-sip');
-  const cur = sel.value;
-  sel.innerHTML = '<option value="">All SIP codes</option>';
-  Object.keys(codes).sort().forEach(code => {
+// ── Populate filter dropdowns from loaded data ─────────────────────────────────
+function buildDropdowns(calls, summary) {
+  // SIP codes
+  const sipSel = document.getElementById('filter-sip');
+  const curSip = sipSel.value;
+  sipSel.innerHTML = '<option value="">All SIP codes</option>';
+  Object.keys(summary.sip_codes || {}).sort().forEach(code => {
     const o = document.createElement('option');
     o.value = code; o.textContent = sipLabel(code);
-    sel.appendChild(o);
+    sipSel.appendChild(o);
   });
-  if (cur) sel.value = cur;
+  if (curSip) sipSel.value = curSip;
+
+  // Hangup causes
+  const causeSel = document.getElementById('filter-cause');
+  const curCause = causeSel.value;
+  causeSel.innerHTML = '<option value="">All hangup causes</option>';
+  Object.keys(summary.hangup_causes || {}).sort().forEach(c => {
+    if (c === '—') return;
+    const o = document.createElement('option');
+    o.value = c; o.textContent = c;
+    causeSel.appendChild(o);
+  });
+  if (curCause) causeSel.value = curCause;
+
+  // Dispositions
+  const dispSel = document.getElementById('filter-disp');
+  const curDisp = dispSel.value;
+  dispSel.innerHTML = '<option value="">All dispositions</option>';
+  Object.keys(summary.dispositions || {}).sort().forEach(d => {
+    if (d === '—') return;
+    const o = document.createElement('option');
+    o.value = d; o.textContent = d;
+    dispSel.appendChild(o);
+  });
+  if (curDisp) dispSel.value = curDisp;
+
+  // Agents
+  const agentSel = document.getElementById('filter-agent');
+  const curAgent = agentSel.value;
+  agentSel.innerHTML = '<option value="">All agents</option>';
+  const agentNames = [...new Set(calls.map(c => c.agent_name).filter(Boolean))].sort();
+  agentNames.forEach(name => {
+    const o = document.createElement('option');
+    o.value = name; o.textContent = name;
+    agentSel.appendChild(o);
+  });
+  if (curAgent) agentSel.value = curAgent;
+
+  // Campaigns
+  const campSel = document.getElementById('filter-campaign');
+  const curCamp = campSel.value;
+  campSel.innerHTML = '<option value="">All campaigns</option>';
+  const campNames = [...new Set(calls.map(c => c.campaign_name).filter(Boolean))].sort();
+  campNames.forEach(name => {
+    const o = document.createElement('option');
+    o.value = name; o.textContent = name;
+    campSel.appendChild(o);
+  });
+  if (curCamp) campSel.value = curCamp;
+}
+
+// ── Call Log ───────────────────────────────────────────────────────────────────
+function filterTable() {
+  const search   = (document.getElementById('filter-search')?.value   || '').toLowerCase();
+  const agent    = document.getElementById('filter-agent')?.value    || '';
+  const campaign = document.getElementById('filter-campaign')?.value || '';
+  const status   = document.getElementById('filter-status')?.value   || '';
+  const sip      = document.getElementById('filter-sip')?.value      || '';
+  const cause    = document.getElementById('filter-cause')?.value    || '';
+  const disp     = document.getElementById('filter-disp')?.value     || '';
+  const dateFrom = document.getElementById('filter-date-from')?.value || '';
+  const dateTo   = document.getElementById('filter-date-to')?.value   || '';
+
+  const filtered = _allCalls.filter(c => {
+    if (search   && !(c.contact?.phone || '').includes(search)
+                 && !(c.contact?.name  || '').toLowerCase().includes(search)) return false;
+    if (agent    && c.agent_name    !== agent)    return false;
+    if (campaign && c.campaign_name !== campaign) return false;
+    if (status   && c.status        !== status)   return false;
+    if (sip      && c.sip_code      !== sip)      return false;
+    if (cause    && c.hangup_cause  !== cause)    return false;
+    if (disp     && c.disposition   !== disp)     return false;
+    if (dateFrom) {
+      const dt = c.start_time ? new Date(c.start_time + (c.start_time.endsWith('Z') ? '' : 'Z')) : null;
+      if (!dt || dt < new Date(dateFrom)) return false;
+    }
+    if (dateTo) {
+      const dt = c.start_time ? new Date(c.start_time + (c.start_time.endsWith('Z') ? '' : 'Z')) : null;
+      if (!dt || dt > new Date(dateTo + 'T23:59:59Z')) return false;
+    }
+    return true;
+  });
+
+  const countEl = document.getElementById('log-count');
+  if (countEl) countEl.textContent = `${filtered.length} of ${_allCalls.length} calls`;
+
+  renderReportTable(filtered);
+}
+
+function clearFilters() {
+  ['filter-search','filter-agent','filter-campaign','filter-status',
+   'filter-sip','filter-cause','filter-disp','filter-date-from','filter-date-to']
+    .forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+  filterTable();
 }
 
 function renderReportTable(calls) {
@@ -157,66 +307,66 @@ function renderReportTable(calls) {
     const dt = c.start_time
       ? new Date(c.start_time + (c.start_time.endsWith('Z') ? '' : 'Z')).toLocaleString()
       : '—';
-    const dur  = c.duration != null ? c.duration + 's' : '—';
-    const code = c.sip_code || '—';
-    const rec  = c.recording_path
+    const code    = c.sip_code || '—';
+    const sipCls  = sipBarColor(code) === 'bar-green' ? 'sip-2xx' : sipBarColor(code) === 'bar-amber' ? 'sip-4xx' : sipBarColor(code) === 'bar-red' ? 'sip-5xx' : 'sip-unk';
+    const recHtml = c.recording_path
       ? `<a href="/recordings/${c.recording_path}?download=true" download
             class="rec-btn" style="text-decoration:none;font-size:10px">⬇ Save</a>`
       : '—';
+    const sentCls  = c.ai_sentiment === 'positive' ? 'sip-2xx' : c.ai_sentiment === 'negative' ? 'sip-5xx' : 'sip-unk';
+    const rowStyle = c.status === 'completed' ? 'background:rgba(74,222,128,.04)'
+                   : c.status === 'failed'    ? 'background:rgba(248,113,113,.04)'
+                   : c.status === 'dropped'   ? 'background:rgba(251,191,36,.04)' : '';
     const tr = document.createElement('tr');
+    tr.style.cssText = rowStyle;
     tr.innerHTML = `
-      <td style="white-space:nowrap;font-size:10px">${dt}</td>
-      <td style="font-family:monospace">${c.contact?.phone ?? '—'}</td>
+      <td style="white-space:nowrap;font-size:10px;color:var(--muted)">${dt}</td>
+      <td style="font-family:monospace;font-weight:600">${c.contact?.phone ?? '—'}</td>
       <td>${c.contact?.name ?? '—'}</td>
-      <td>${c.campaign_id === 'quick' ? 'Quick Dial' : (c.campaign_id?.slice(0,8) ?? '—')}</td>
+      <td><span style="font-size:10px">${c.campaign_name || '—'}</span></td>
+      <td><span style="font-size:10px;color:var(--purple-l)">${c.agent_name || '—'}</span></td>
       <td style="font-family:monospace;font-size:10px">${c.caller_id || '—'}</td>
-      <td>${c.agent_id ? c.agent_id.slice(0,8) : '—'}</td>
-      <td>${dur}</td>
-      <td><span class="chip chip-${c.status}">${c.status}</span></td>
-      <td><span class="sip-chip ${sipClass(code)}" style="padding:2px 8px;font-size:10px">${sipLabel(code)}</span></td>
-      <td><span class="cause-chip">${c.hangup_cause || '—'}</span></td>
-      <td>${c.disposition || '—'}</td>
-      <td>${rec}</td>`;
+      <td style="font-variant-numeric:tabular-nums">${fmtDur(c.duration)}</td>
+      <td><span class="chip chip-${c.status}" style="font-size:9px">${c.status}</span></td>
+      <td><span class="sip-chip ${sipCls}" style="padding:2px 6px;font-size:10px">${sipLabel(code)}</span></td>
+      <td><span class="cause-chip" style="font-size:9px">${c.hangup_cause || '—'}</span></td>
+      <td style="font-size:10px">${c.amd_result || '—'}</td>
+      <td style="font-size:10px">${c.disposition || '—'}</td>
+      <td>${c.ai_sentiment ? `<span class="sip-chip ${sentCls}" style="padding:2px 6px;font-size:9px">${c.ai_sentiment}</span>` : '—'}</td>
+      <td>${recHtml}</td>`;
     tbody.appendChild(tr);
   });
 }
 
-function filterTable() {
-  const phone = document.getElementById('filter-phone').value.toLowerCase();
-  const disp  = document.getElementById('filter-disp').value;
-  const sip   = document.getElementById('filter-sip').value;
-  const filtered = _allCalls.filter(c => {
-    if (phone && !(c.contact?.phone || '').includes(phone)) return false;
-    if (disp  && c.disposition !== disp) return false;
-    if (sip   && c.sip_code   !== sip)  return false;
-    return true;
-  });
-  renderReportTable(filtered);
-}
-
 function exportCSV() {
-  const rows = [['DateTime','Phone','Name','CampaignID','DID','AgentID','Duration','Status','SIPCode','HangupCause','Disposition']];
+  const rows = [['DateTime','Phone','Name','Campaign','Agent','DID','Duration(s)','Status','SIPCode','SIPLabel','HangupCause','AMD','Disposition','Sentiment','AISummary']];
   _allCalls.forEach(c => {
     rows.push([
       c.start_time || '',
       c.contact?.phone || '',
-      c.contact?.name || '',
-      c.campaign_id || '',
-      c.caller_id || '',
-      c.agent_id || '',
-      c.duration ?? '',
-      c.status || '',
-      c.sip_code || '',
-      c.hangup_cause || '',
-      c.disposition || '',
+      c.contact?.name  || '',
+      c.campaign_name  || c.campaign_id || '',
+      c.agent_name     || c.agent_id    || '',
+      c.caller_id      || '',
+      c.duration       ?? '',
+      c.status         || '',
+      c.sip_code       || '',
+      sipLabel(c.sip_code) || '',
+      c.hangup_cause   || '',
+      c.amd_result     || '',
+      c.disposition    || '',
+      c.ai_sentiment   || '',
+      (c.ai_summary    || '').replace(/\n/g, ' '),
     ]);
   });
-  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const csv  = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
-  a.href = url; a.download = `calls-${new Date().toISOString().slice(0,10)}.csv`;
-  a.click(); URL.revokeObjectURL(url);
+  a.href = url;
+  a.download = `calls-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ── Users ──────────────────────────────────────────────────────────────────────

@@ -1002,3 +1002,99 @@ tbody tr:hover td { background: rgba(255,255,255,.025); }
 }
 
 .agent-card.idle    { border-color: var(--green-d); }
+
+/* ── Advanced Reporting ──────────────────────────────────────────────────────── */
+
+/* KPI Cards */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 12px;
+  margin-top: 4px;
+}
+.kpi-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  text-align: center;
+  transition: border-color var(--t);
+}
+.kpi-card:hover { border-color: var(--border2); }
+.kpi-val {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -1px;
+  color: var(--text);
+}
+.kpi-lbl {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.kpi-green .kpi-val { color: var(--green); }
+.kpi-red   .kpi-val { color: var(--red);   }
+.kpi-amber .kpi-val { color: var(--amber); }
+.kpi-blue  .kpi-val { color: #60a5fa;      }
+.kpi-purple .kpi-val{ color: var(--purple-l); }
+
+/* Two-column layout */
+.adm-two-col {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.adm-two-col > .adm-card { flex: 1; min-width: 260px; }
+
+/* Bar charts */
+.bar-list { display: flex; flex-direction: column; gap: 6px; }
+.bar-row {
+  display: grid;
+  grid-template-columns: 180px 1fr 80px;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+.bar-label {
+  color: var(--text2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+}
+.bar-track {
+  height: 8px;
+  background: var(--surface3);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width .4s ease;
+}
+.bar-green  { background: var(--green); }
+.bar-amber  { background: var(--amber); }
+.bar-red    { background: var(--red);   }
+.bar-purple { background: var(--purple-l); }
+.bar-gray   { background: var(--muted); }
+.bar-count  { font-variant-numeric: tabular-nums; text-align: right; font-size: 11px; color: var(--text2); font-weight: 600; }
+.bar-pct    { color: var(--muted); font-weight: 400; font-size: 10px; }
+
+/* adm-card-title flex helpers */
+.adm-card-title { display: flex; align-items: center; gap: 6px; }
+
+/* Enhanced filter row */
+.filter-row input[type="date"] { color-scheme: dark; }
+
+@media (max-width: 700px) {
+  .kpi-grid { grid-template-columns: repeat(4, 1fr); }
+  .bar-row  { grid-template-columns: 110px 1fr 60px; }
+  .adm-two-col { flex-direction: column; }
+}
+@media (max-width: 420px) {
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+}
