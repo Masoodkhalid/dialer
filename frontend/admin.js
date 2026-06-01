@@ -249,9 +249,11 @@ function renderUsers() {
       <td>${badge}</td>
       <td>${agentPill}</td>
       <td>${created}</td>
-      <td style="display:flex;gap:6px">
+      <td style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn btn-amber" style="padding:3px 10px;font-size:10px"
                 onclick="resetPw('${u.username}')">Reset PW</button>
+        ${u.extension ? `<button class="btn btn-purple" style="padding:3px 10px;font-size:10px"
+                onclick="resetSipPw('${u.username}')">SIP PW</button>` : ''}
         <button class="btn btn-red" style="padding:3px 10px;font-size:10px"
                 onclick="deleteUser('${u.username}')">Delete</button>
       </td>`;
@@ -289,6 +291,22 @@ async function resetPw(username) {
   try {
     await api('POST', `/admin/users/${username}/reset-password`, { password: pw || '1234' });
     alert(`✓ Password reset for ${username}. New password: ${pw || '1234'}`);
+  } catch (err) {
+    alert('✗ ' + err.message);
+  }
+}
+
+async function resetSipPw(username) {
+  const pw = prompt(
+    `Set SIP password for "${username}".\n\n` +
+    `This is the password used by the WebPhone to register with FreeSWITCH.\n` +
+    `It must match what is configured in FreeSWITCH's user directory.\n\n` +
+    `Leave blank to use "1234":`
+  );
+  if (pw === null) return;
+  try {
+    await api('POST', `/admin/users/${username}/reset-sip-password`, { password: pw || '1234' });
+    alert(`✓ SIP password set for ${username}.`);
   } catch (err) {
     alert('✗ ' + err.message);
   }

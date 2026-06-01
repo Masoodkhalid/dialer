@@ -55,6 +55,8 @@ class User(BaseModel):
     extension: Optional[str] = None
     agent_id: Optional[str] = None          # linked Agent.id (auto-created on user create)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    phone_type: str = "softphone"           # "softphone" or "webphone"
+    sip_password: Optional[str] = None      # FreeSWITCH SIP auth password (for webphone)
 
 
 class DID(BaseModel):
@@ -158,6 +160,7 @@ class UserCreate(BaseModel):
     password: str = "1234"
     role: UserRole = UserRole.USER
     extension: Optional[str] = None
+    sip_password: Optional[str] = None     # if omitted, defaults to web password
 
 
 class WSMessage(BaseModel):

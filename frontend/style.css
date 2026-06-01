@@ -845,4 +845,160 @@ tbody tr:hover td { background: rgba(255,255,255,.025); }
 
 /* ── Glow card effect on hover ─────────────────────────────────────────────── */
 .agent-card.on-call { border-color: #1e3a8a; box-shadow: 0 0 12px rgba(59,130,246,.15); }
+
+/* ── WebPhone widget ───────────────────────────────────────────────────────── */
+#webphone-widget {
+  position: fixed;
+  bottom: 80px;      /* sit above mobile bottom-nav */
+  right: 16px;
+  width: 232px;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: 1000;
+  overflow: hidden;
+  transition: box-shadow var(--t);
+}
+#webphone-widget.wp-ringing {
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px rgba(16,185,129,.35), var(--shadow-lg);
+  animation: wp-pulse 1s ease-in-out infinite;
+}
+#webphone-widget.wp-active {
+  border-color: var(--red);
+  box-shadow: 0 0 0 2px rgba(239,68,68,.2), var(--shadow-lg);
+}
+@keyframes wp-pulse {
+  0%,100% { box-shadow: 0 0 0 2px rgba(16,185,129,.35), var(--shadow-lg); }
+  50%      { box-shadow: 0 0 0 5px rgba(16,185,129,.12), var(--shadow-lg); }
+}
+
+.wp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  cursor: pointer;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+.wp-header:hover { background: var(--surface3); }
+.wp-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--purple-l);
+}
+.wp-chevron { font-size: 9px; color: var(--muted); }
+
+.wp-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.wp-dot-on   { background: var(--green); box-shadow: 0 0 5px var(--green); }
+.wp-dot-warn { background: var(--amber); }
+.wp-dot-off  { background: var(--muted); }
+.wp-dot-err  { background: var(--red); }
+
+.wp-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+
+/* Mode toggle */
+.wp-mode-row { display: flex; gap: 6px; }
+.wp-mode-btn {
+  flex: 1;
+  padding: 5px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  background: var(--surface3);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all var(--t);
+}
+.wp-mode-btn.active {
+  background: var(--purple-d);
+  border-color: var(--purple);
+  color: var(--purple-l);
+}
+.wp-mode-btn:hover:not(.active) { border-color: var(--border2); color: var(--text2); background: var(--surface2); }
+
+/* Status line */
+.wp-status-line {
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  padding: 2px 0;
+}
+
+/* SIP password setup */
+.wp-setup { display: flex; flex-direction: column; gap: 5px; }
+.wp-input-row { display: flex; gap: 5px; }
+.wp-input {
+  flex: 1;
+  background: var(--surface3);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 11px;
+  padding: 5px 8px;
+  outline: none;
+  min-width: 0;
+}
+.wp-input:focus { border-color: var(--purple); }
+.wp-save-btn {
+  background: var(--purple);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+.wp-save-btn:hover { background: var(--purple-l); color: var(--bg); }
+
+/* Call panel */
+.wp-call-info {
+  text-align: center;
+  padding: 4px 0;
+}
+.wp-call-label { font-size: 12px; font-weight: 700; }
+.wp-call-sub   { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.wp-call-timer {
+  font-size: 22px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--red-l);
+  letter-spacing: .02em;
+  margin-top: 4px;
+}
+
+.wp-call-btns { display: flex; gap: 6px; }
+.wp-btn {
+  flex: 1;
+  padding: 7px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: opacity var(--t);
+}
+.wp-btn:hover { opacity: .85; }
+.wp-btn-green { background: var(--green);  color: #fff; }
+.wp-btn-red   { background: var(--red);    color: #fff; }
+.wp-btn-amber { background: var(--amber);  color: #000; }
+.wp-btn-muted { background: var(--surface3); color: var(--text2); border: 1px solid var(--border2); }
+
+@media (max-width: 600px) {
+  #webphone-widget { bottom: 72px; right: 8px; width: 210px; }
+}
+
 .agent-card.idle    { border-color: var(--green-d); }

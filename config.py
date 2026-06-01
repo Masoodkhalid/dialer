@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     RECORDING_DIR: str = "/var/lib/freeswitch/recordings"
     RECORDING_FORMAT: str = "wav"
 
+    # WebRTC / WebPhone
+    FS_WS_URL: str = ""         # WebSocket URL for SIP.js, e.g. ws://1.2.3.4:5066
+                                # leave empty → auto-built from FS_HOST on port 5066
+    FS_SIP_DOMAIN: str = ""     # SIP domain for user registration, defaults to FS_HOST
+
     # Web server
     HOST: str = "0.0.0.0"
     PORT: int = 8000

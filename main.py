@@ -392,6 +392,43 @@ async def auth_me(payload: dict = Depends(require_any)):
     return {"username": payload.get("username"), "role": payload.get("role")}
 
 
+@app.get("/agent/config")
+async def agent_config(payload: dict = Depends(require_any)):
+    """Return the authenticated user's SIP / webphone configuration."""
+    username = payload.get("username")
+    user = users.get(username)
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    # Build WebSocket URL: prefer explicit env setting, else derive from FS_HOST
+    ws_url = settings.FS_WS_URL or f"ws://{settings.FS_HOST}:5066"
+    sip_domain = settings.FS_SIP_DOMAIN or settings.FS_HOST
+
+    return {
+        "extension":   user.extension,
+        "sip_password": user.sip_password,
+        "phone_type":  user.phone_type,
+        "ws_url":      ws_url,
+        "sip_domain":  sip_domain,
+        "display_name": username,
+    }
+
+
+@app.patch("/agent/preferences")
+async def update_agent_preferences(body: dict, payload: dict = Depends(require_any)):
+    """Update the authenticated user's phone type and/or SIP password."""
+    username = payload.get("username")
+    user = users.get(username)
+    if not user:
+        raise HTTPException(404, "User not found")
+    if "phone_type" in body and body["phone_type"] in ("softphone", "webphone"):
+        user.phone_type = body["phone_type"]
+    if "sip_password" in body:
+        user.sip_password = body["sip_password"] or None
+    _save()
+    return {"status": "ok", "phone_type": user.phone_type}
+
+
 # ── Admin: User management ─────────────────────────────────────────────────────
 
 @app.get("/admin/users")
@@ -417,11 +454,14 @@ async def create_user(body: UserCreate, payload: dict = Depends(require_admin)):
         if conflict:
             raise HTTPException(409, f"Extension {body.extension} is already assigned to agent '{conflict.name}'")
 
+    web_password = body.password or "1234"
     user = User(
         username=username,
-        password_hash=hash_password(body.password or "1234"),
+        password_hash=hash_password(web_password),
         role=body.role,
         extension=body.extension,
+        # sip_password defaults to the web password so admin has one less thing to configure
+        sip_password=body.sip_password or web_password,
     )
 
     # Auto-register as a dialer agent when an extension is provided
@@ -445,6 +485,17 @@ async def reset_password(username: str, body: dict, payload: dict = Depends(requ
         raise HTTPException(404, "User not found")
     new_pw = (body.get("password") or "1234")
     user.password_hash = hash_password(new_pw)
+    _save()
+    return {"status": "ok"}
+
+
+@app.post("/admin/users/{username}/reset-sip-password")
+async def reset_sip_password(username: str, body: dict, payload: dict = Depends(require_admin)):
+    """Set the SIP password used by the webphone to authenticate with FreeSWITCH."""
+    user = users.get(username)
+    if not user:
+        raise HTTPException(404, "User not found")
+    user.sip_password = body.get("password") or "1234"
     _save()
     return {"status": "ok"}
 
