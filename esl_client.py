@@ -179,7 +179,7 @@ class ESLClient:
             f"origination_caller_id_number={cid},"
             f"origination_caller_id_name={cid},"
             f"leg_timeout=30"
-            f"}}user/{extension} &bridge({call_uuid})"
+            f"}}user/{extension} &park()"
         )
         logger.info("bridge_to_agent → bgapi %s", cmd)
         job_uuid = await self.bgapi(cmd)
