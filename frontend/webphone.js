@@ -71,12 +71,19 @@ function _startUA() {
 
   if (WP.ua) _stopUA();
 
+  // Guard: JsSIP must be loaded
+  if (typeof JsSIP === 'undefined') {
+    _showStatusText('⚠ JsSIP library not loaded — reload the page', 'var(--red)');
+    console.error('webphone: JsSIP is not defined — check /static/jssip.min.js');
+    return;
+  }
+
   let socket;
   try {
     socket = new JsSIP.WebSocketInterface(cfg.ws_url);
   } catch (e) {
-    console.error('webphone: WebSocketInterface failed', e);
-    _showStatusText('⚠ WebSocket error — check FS_WS_URL');
+    console.error('webphone: WebSocketInterface error', e);
+    _showStatusText('⚠ Bad WS URL: ' + cfg.ws_url, 'var(--red)');
     return;
   }
 
