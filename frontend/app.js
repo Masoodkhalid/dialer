@@ -47,7 +47,8 @@ function setStatus(state) {
 
 function startWebSocket() {
   const tok = encodeURIComponent(_authToken || '');
-  _ws = new WebSocket(`ws://${location.host}/ws?token=${tok}`);
+  const _wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  _ws = new WebSocket(`${_wsProto}//${location.host}/ws?token=${tok}`);
   _ws.onopen    = () => { setStatus('online'); _polling = false; };
   _ws.onmessage = ev => { const {type, data} = JSON.parse(ev.data); handleMsg(type, data); };
   _ws.onclose   = () => {
