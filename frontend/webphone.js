@@ -87,6 +87,14 @@ function _startUA() {
     return;
   }
 
+  // STUN servers let the browser discover its public IP/port so FreeSWITCH
+  // (on a public IP) can reach it for RTP.  Without this ICE uses only host
+  // (LAN) candidates → audio path never established → silence.
+  const iceServers = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ];
+
   const ua = new JsSIP.UA({
     sockets:      [socket],
     uri:          `sip:${cfg.extension}@${cfg.sip_domain}`,
@@ -97,6 +105,7 @@ function _startUA() {
     connection_recovery_min_interval: 2,
     connection_recovery_max_interval: 30,
     log: { builtinEnabled: false },
+    pcConfig: { iceServers },
   });
 
   ua.on('registered',     ()  => { WP.regStatus = 'registered';   _renderStatus(); });
@@ -186,9 +195,14 @@ function _onSessionEnd() {
 // ── Call controls ──────────────────────────────────────────────────────────────
 function wpAnswer() {
   if (!WP.session || WP.callState !== 'ringing') return;
+  const iceServers = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ];
   WP.session.answer({
-    mediaConstraints: { audio: true, video: false },
+    mediaConstraints:    { audio: true, video: false },
     sessionTimersExpires: 120,
+    pcConfig:            { iceServers },
   });
 }
 
