@@ -52,6 +52,7 @@ class DialerEngine:
         recording_enabled: bool = False,
         recording_dir: str = "/var/lib/freeswitch/recordings",
         recording_format: str = "wav",
+        sip_domain: str = "",
         on_event: Optional[Callable[[str, dict], Coroutine]] = None,
     ) -> None:
         self.esl = esl
@@ -69,6 +70,7 @@ class DialerEngine:
         self.recording_enabled = recording_enabled
         self.recording_dir = recording_dir
         self.recording_format = recording_format
+        self.sip_domain = sip_domain
         self._on_event = on_event
 
         self._contact_queue: List[Contact] = []
@@ -403,10 +405,13 @@ class DialerEngine:
         call.agent_id = agent.id
 
         try:
-            job = await self.esl.bridge_to_agent(call.fs_uuid, agent.extension, call.contact.phone)
+            job = await self.esl.bridge_to_agent(
+                call.fs_uuid, agent.extension, call.contact.phone,
+                phone_type=agent.phone_type, sip_domain=self.sip_domain,
+            )
             self.call_mgr._by_job_uuid[job] = call.id   # register so BACKGROUND_JOB finds bridge +OK
-            logger.info("Bridge dispatched job=%s: %s → agent %s (%s)",
-                        job, call.contact.phone, agent.name, agent.extension)
+            logger.info("Bridge dispatched job=%s: %s → agent %s (%s) phone_type=%s",
+                        job, call.contact.phone, agent.name, agent.extension, agent.phone_type)
         except Exception as exc:
             logger.error("Bridge failed: %s", exc, exc_info=True)
             await self.agent_mgr.release_call(agent.id)

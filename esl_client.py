@@ -159,7 +159,9 @@ class ESLClient:
         return job_uuid, channel_uuid
 
     async def bridge_to_agent(self, call_uuid: str, extension: str,
-                              caller_id: str = "") -> str:
+                              caller_id: str = "",
+                              phone_type: str = "softphone",
+                              sip_domain: str = "") -> str:
         """Ring the agent and park them; caller bridges both with uuid_bridge.
 
         Parks the agent leg with &park() so FreeSWITCH holds both legs
@@ -167,15 +169,26 @@ class ESLClient:
         the caller then uses uuid_bridge(carrier_uuid, agent_uuid) to
         connect the two parked channels.
 
-        This avoids CHAN_NOT_IMPLEMENTED that occurs when &bridge() is run
-        from the B-leg pointing at a carrier leg that has been in park/IVR
-        for an extended period (18–30 s ring time).
+        phone_type="softphone"  → user/{extension}          (rings Zoiper and any registered SIP client)
+        phone_type="webphone"   → sofia/internal with transport=ws (rings ONLY the browser WebSocket client,
+                                  bypassing Zoiper even if it is also registered on the same extension)
 
         NOTE: api (synchronous) must NOT be used for originate because it
         holds the API lock for the entire ring duration and times out if the
         agent doesn't answer within 30 s, corrupting the response queue.
         """
         cid = caller_id or "Dialer"
+
+        if phone_type == "webphone" and sip_domain:
+            # Target only the WebRTC/WebSocket endpoint registered from the browser.
+            # transport=ws tells FreeSWITCH to skip Zoiper (UDP/TCP) and only ring
+            # the contact that registered over WebSocket (port 5066).
+            endpoint = f"sofia/internal/sip:{extension}@{sip_domain};transport=ws"
+            logger.info("bridge_to_agent: webphone mode → %s", endpoint)
+        else:
+            # Default: ring all registered contacts for this extension (Zoiper / softphone)
+            endpoint = f"user/{extension}"
+
         cmd = (
             f"originate {{"
             f"origination_caller_id_number={cid},"
@@ -183,12 +196,12 @@ class ESLClient:
             f"proxy_media=true,"
             f"absolute_codec_string=PCMU@8000h,PCMA@8000h,"
             f"leg_timeout=30"
-            f"}}user/{extension} &park()"
+            f"}}{endpoint} &park()"
         )
         logger.info("bridge_to_agent → bgapi %s", cmd)
         job_uuid = await self.bgapi(cmd)
-        logger.info("bridge_to_agent dispatched job=%s (call=%s ext=%s)",
-                    job_uuid, call_uuid, extension)
+        logger.info("bridge_to_agent dispatched job=%s (call=%s ext=%s phone_type=%s)",
+                    job_uuid, call_uuid, extension, phone_type)
         return job_uuid
 
     async def uuid_bridge(self, uuid_a: str, uuid_b: str) -> str:

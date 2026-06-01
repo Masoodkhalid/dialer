@@ -119,17 +119,19 @@ def _load_persisted() -> None:
     for user in users.values():
         if user.extension and not user.agent_id:
             # User has an extension but no linked agent → create one now
-            agent = Agent(name=user.username, extension=user.extension)
+            agent = Agent(name=user.username, extension=user.extension,
+                          phone_type=user.phone_type)
             agent_mgr.register(agent)
             user.agent_id = agent.id
             logger.info("Auto-created agent '%s' ext=%s for user '%s'",
                         user.username, user.extension, user.username)
         elif user.agent_id:
-            # Re-register the agent (restore from data)
+            # Re-register the agent (restore from data); carry phone_type from user
             agent = Agent(
                 id=user.agent_id,
                 name=user.username,
                 extension=user.extension or "",
+                phone_type=user.phone_type,
             )
             agent_mgr.register(agent)
 
@@ -268,11 +270,15 @@ async def _global_on_answer(event) -> None:
 
     if idle:
         agent = idle[0]
-        logger.info("Bridging to agent %s ext=%s", agent.name, agent.extension)
+        logger.info("Bridging to agent %s ext=%s phone_type=%s", agent.name, agent.extension, agent.phone_type)
         await agent_mgr.assign_call(agent.id, call.id)
         call.agent_id = agent.id
         try:
-            job = await esl.bridge_to_agent(call.fs_uuid, agent.extension, call.contact.phone)
+            sip_domain = settings.FS_SIP_DOMAIN or settings.FS_HOST
+            job = await esl.bridge_to_agent(
+                call.fs_uuid, agent.extension, call.contact.phone,
+                phone_type=agent.phone_type, sip_domain=sip_domain,
+            )
             call_mgr._by_job_uuid[job] = call.id   # register bridge job so BACKGROUND_JOB finds it
             logger.info("Bridge dispatched job=%s → agent %s ext=%s",
                         job, agent.name, agent.extension)
@@ -423,6 +429,11 @@ async def update_agent_preferences(body: dict, payload: dict = Depends(require_a
         raise HTTPException(404, "User not found")
     if "phone_type" in body and body["phone_type"] in ("softphone", "webphone"):
         user.phone_type = body["phone_type"]
+        # Keep the linked Agent in sync so DialerEngine reads the right value
+        if user.agent_id:
+            agent = agent_mgr.get(user.agent_id)
+            if agent:
+                agent.phone_type = body["phone_type"]
     if "sip_password" in body:
         user.sip_password = body["sip_password"] or None
     _save()
@@ -466,7 +477,7 @@ async def create_user(body: UserCreate, payload: dict = Depends(require_admin)):
 
     # Auto-register as a dialer agent when an extension is provided
     if body.extension:
-        agent = Agent(name=username, extension=body.extension)
+        agent = Agent(name=username, extension=body.extension, phone_type=user.phone_type)
         agent_mgr.register(agent)
         user.agent_id = agent.id
         logger.info("Auto-created agent '%s' ext=%s for user '%s'",
@@ -692,6 +703,7 @@ async def start_campaign(campaign_id: str, body: dict = {},
         recording_enabled=settings.RECORDING_ENABLED,
         recording_dir=settings.RECORDING_DIR,
         recording_format=settings.RECORDING_FORMAT,
+        sip_domain=settings.FS_SIP_DOMAIN or settings.FS_HOST,
         on_event=on_dialer_event,
     )
     engines[campaign_id] = engine

@@ -85,6 +85,7 @@ class Agent(BaseModel):
     current_call_id: Optional[str] = None
     calls_handled: int = 0
     login_time: Optional[datetime] = None
+    phone_type: str = "softphone"  # "softphone" or "webphone" — synced from User on preference change
 
 
 class Call(BaseModel):
