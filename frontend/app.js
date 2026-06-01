@@ -4,6 +4,8 @@
 const _authToken = localStorage.getItem('dialer_token');
 if (!_authToken) { window.location.href = '/login'; }
 const _username = localStorage.getItem('dialer_username') || '';
+const _role     = localStorage.getItem('dialer_role')     || 'user';
+const _isAdmin  = _role === 'superadmin';
 const _navUser  = document.getElementById('nav-user');
 if (_navUser) _navUser.textContent = '👤 ' + _username;
 
@@ -202,7 +204,19 @@ function switchTabMobile(name) {
   });
 }
 
+_applyRoleVisibility();
 startWebSocket();
+
+function _applyRoleVisibility() {
+  if (_isAdmin) return;   // admins see everything
+
+  // Hide campaign create / upload / control buttons — agents are read-only
+  const hide = ['camp-create-row', 'camp-upload-btn', 'camp-btn-group', 'agents-admin-link'];
+  hide.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+}
 
 // ── Tabs ───────────────────────────────────────────────────────────────────────
 function switchTab(name, btn) {
@@ -462,24 +476,69 @@ function populateCampaignSelect() {
 function renderAgents() {
   const list = document.getElementById('agent-list');
   list.innerHTML = '';
-  const agents = Object.values(state.agents);
+  let agents = Object.values(state.agents);
+
   if (!agents.length) {
     list.innerHTML = '<div style="color:var(--muted);font-size:11px;text-align:center;padding:16px">No agents yet — <a href="/admin" style="color:var(--purple)">add users in Admin Panel</a></div>';
     return;
   }
+
+  // Non-admin agents only see their own card
+  if (!_isAdmin) {
+    agents = agents.filter(a => a.name === _username);
+    if (!agents.length) {
+      list.innerHTML = '<div style="color:var(--muted);font-size:11px;text-align:center;padding:16px">No agent profile found for your account.</div>';
+      return;
+    }
+  }
+
   agents.forEach(a => {
-    const label = a.status === 'offline' ? 'Login' : 'Logout';
     const el = document.createElement('div');
-    el.className = 'agent-card';
-    el.innerHTML = `
-      <span class="agent-dot dot-${a.status}"></span>
-      <div class="agent-info">
-        <div class="agent-name">${a.name}</div>
-        <div class="agent-meta">Ext ${a.extension} · ${a.status.replace('_',' ')} · ${a.calls_handled} calls</div>
-      </div>
-      <button class="agent-action" onclick="toggleAgent('${a.id}')">${label}</button>`;
+    el.className = 'agent-card' + (a.name === _username ? ' agent-card-self' : '');
+
+    if (_isAdmin) {
+      // Admin: simple login/logout toggle per agent
+      const label = a.status === 'offline' ? 'Login' : 'Logout';
+      el.innerHTML = `
+        <span class="agent-dot dot-${a.status}"></span>
+        <div class="agent-info">
+          <div class="agent-name">${a.name}</div>
+          <div class="agent-meta">Ext ${a.extension} · ${a.status.replace('_',' ')} · ${a.calls_handled} calls</div>
+        </div>
+        <button class="agent-action" onclick="toggleAgent('${a.id}')">${label}</button>`;
+    } else {
+      // Own card: richer controls — Login/Logout + Break/Return
+      const isOffline = a.status === 'offline';
+      const isOnBreak = a.status === 'break';
+      const isOnCall  = a.status === 'on_call' || a.status === 'wrap_up';
+      el.innerHTML = `
+        <span class="agent-dot dot-${a.status}"></span>
+        <div class="agent-info" style="flex:1">
+          <div class="agent-name">${a.name} <span style="font-size:10px;color:var(--muted);font-weight:400">· Ext ${a.extension}</span></div>
+          <div class="agent-meta">${a.status.replace('_',' ')} · ${a.calls_handled} calls today</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+          ${isOffline
+            ? `<button class="agent-action" onclick="toggleAgent('${a.id}')">Login</button>`
+            : `<button class="agent-action agent-action-red" onclick="toggleAgent('${a.id}')">Logout</button>`}
+          ${(!isOffline && !isOnCall)
+            ? (isOnBreak
+                ? `<button class="agent-action agent-action-green" onclick="agentReturn('${a.id}')">Return</button>`
+                : `<button class="agent-action agent-action-amber" onclick="agentBreak('${a.id}')">Break</button>`)
+            : ''}
+        </div>`;
+    }
     list.appendChild(el);
   });
+}
+
+async function agentBreak(id) {
+  try { await api('POST', '/agents/break', { agent_id: id }); }
+  catch(e) { alert('Could not go on break: ' + e.message); }
+}
+async function agentReturn(id) {
+  try { await api('POST', '/agents/return', { agent_id: id }); }
+  catch(e) { alert('Could not return from break: ' + e.message); }
 }
 
 function renderActiveCalls() {

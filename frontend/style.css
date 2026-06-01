@@ -1002,6 +1002,10 @@ tbody tr:hover td { background: rgba(255,255,255,.025); }
 }
 
 .agent-card.idle    { border-color: var(--green-d); }
+.agent-card-self    { border-color: var(--purple) !important; box-shadow: 0 0 0 1px var(--purple-glow); }
+.agent-action-red   { background: var(--red-d);   color: var(--red-l);   border: 1px solid var(--red); }
+.agent-action-amber { background: var(--amber-d); color: var(--amber-l); border: 1px solid var(--amber); }
+.agent-action-green { background: var(--green-d); color: var(--green-l); border: 1px solid var(--green); }
 
 /* ── Advanced Reporting ──────────────────────────────────────────────────────── */
 
