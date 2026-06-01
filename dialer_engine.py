@@ -242,22 +242,14 @@ class DialerEngine:
         if body.startswith("+OK"):
             result_uuid = body.split()[-1]
             if call.fs_uuid and result_uuid != call.fs_uuid and call.agent_fs_uuid is None:
-                # Bridge job returned agent (Zoiper) leg UUID — park succeeded
+                # Bridge job returned — agent (Zoiper) answered and &bridge() connected audio.
+                # FreeSWITCH already joined the channels; do NOT call uuid_bridge again.
+                # Just register the agent UUID so CHANNEL_HANGUP can find the call.
                 call.agent_fs_uuid = result_uuid
                 self.call_mgr._by_fs_uuid[result_uuid] = call.id
-                logger.info("Agent parked: agent_uuid=%s → uuid_bridge with carrier=%s",
+                logger.info("Agent bridged (BACKGROUND_JOB): agent_uuid=%s carrier=%s",
                             result_uuid, call.fs_uuid)
-                # Both legs parked — connect with uuid_bridge
-                try:
-                    await self.esl.uuid_bridge(call.fs_uuid, result_uuid)
-                    self.call_mgr.on_bridged(call.fs_uuid, call.agent_id or "")
-                    logger.info("uuid_bridge OK: carrier=%s <-> agent=%s",
-                                call.fs_uuid, result_uuid)
-                    await self._emit("call_bridged", {"call_id": call.id, "agent_id": call.agent_id})
-                except Exception as exc:
-                    logger.error("uuid_bridge failed: %s", exc)
-                    if call.fs_uuid:
-                        await self.esl.hangup(call.fs_uuid)
+                # CHANNEL_BRIDGE will fire and call on_bridged / emit call_bridged
             else:
                 # Originate job — confirm/update carrier UUID
                 self.call_mgr.set_fs_uuid(call.id, result_uuid)
