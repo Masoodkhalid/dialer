@@ -1112,6 +1112,15 @@ async def list_calls(payload: dict = Depends(require_any)):
     return [c.model_dump() for c in call_mgr.all_calls()]
 
 
+@app.get("/calls/{call_id}")
+async def get_call(call_id: str, payload: dict = Depends(require_any)):
+    """Get a single call by ID — used by mobile app to poll call status."""
+    call = call_mgr.get(call_id)
+    if not call:
+        raise HTTPException(404, "Call not found")
+    return call.model_dump()
+
+
 @app.post("/calls/{call_id}/hangup")
 async def hangup_call(call_id: str, payload: dict = Depends(require_any)):
     call = call_mgr.get(call_id)
