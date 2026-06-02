@@ -269,6 +269,38 @@ async def _global_on_answer(event) -> None:
         except Exception as exc:
             logger.warning("Recording start failed: %s", exc)
 
+    sip_domain = settings.FS_SIP_DOMAIN or settings.FS_HOST
+
+    # ── Mobile quick-dial: bridge back to the caller's own SIP extension ──────
+    if call.caller_username:
+        caller_user = users.get(call.caller_username)
+        if caller_user and caller_user.extension:
+            logger.info("Mobile quick-dial answered: bridging back to %s ext=%s",
+                        call.caller_username, caller_user.extension)
+            try:
+                job = await esl.bridge_to_agent(
+                    call.fs_uuid, caller_user.extension, call.contact.phone,
+                    phone_type=caller_user.phone_type or "webphone",
+                    sip_domain=sip_domain,
+                )
+                call_mgr._by_job_uuid[job] = call.id
+                logger.info("Mobile bridge dispatched job=%s → %s ext=%s",
+                            job, call.caller_username, caller_user.extension)
+            except Exception as exc:
+                logger.error("Mobile bridge failed: %s", exc, exc_info=True)
+                if call.fs_uuid:
+                    await esl.hangup(call.fs_uuid)
+                call.status = CallStatus.DROPPED
+        else:
+            logger.warning("Mobile quick-dial: no extension for user %s — dropping",
+                           call.caller_username)
+            if call.fs_uuid:
+                await esl.hangup(call.fs_uuid)
+            call.status = CallStatus.DROPPED
+        await broadcast("call_answered", call.model_dump())
+        return
+
+    # ── Predictive dialer: bridge to an idle desk-phone agent ─────────────────
     all_agents = agent_mgr.list_all()
     idle = agent_mgr.get_idle()
     logger.info("Agents: total=%d idle=%d names=%s",
@@ -281,12 +313,11 @@ async def _global_on_answer(event) -> None:
         await agent_mgr.assign_call(agent.id, call.id)
         call.agent_id = agent.id
         try:
-            sip_domain = settings.FS_SIP_DOMAIN or settings.FS_HOST
             job = await esl.bridge_to_agent(
                 call.fs_uuid, agent.extension, call.contact.phone,
                 phone_type=agent.phone_type, sip_domain=sip_domain,
             )
-            call_mgr._by_job_uuid[job] = call.id   # register bridge job so BACKGROUND_JOB finds it
+            call_mgr._by_job_uuid[job] = call.id
             logger.info("Bridge dispatched job=%s → agent %s ext=%s",
                         job, agent.name, agent.extension)
         except Exception as exc:
