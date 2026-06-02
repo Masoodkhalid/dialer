@@ -15,7 +15,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -473,15 +473,26 @@ async def auth_me(payload: dict = Depends(require_any)):
 
 
 @app.get("/agent/config")
-async def agent_config(payload: dict = Depends(require_any)):
-    """Return the authenticated user's SIP / webphone configuration."""
+async def agent_config(request: Request, payload: dict = Depends(require_any)):
+    """Return the authenticated user's SIP / webphone configuration.
+
+    Web dashboard (https page) needs a secure wss:// socket; the native mobile
+    app can use plain ws://. The mobile app sends header `X-Client-Type: mobile`
+    so each platform gets the right WebSocket URL without disturbing the other.
+    """
     username = payload.get("username")
     user = users.get(username)
     if not user:
         raise HTTPException(404, "User not found")
 
-    # Build WebSocket URL: prefer explicit env setting, else derive from FS_HOST
-    ws_url = settings.FS_WS_URL or f"ws://{settings.FS_HOST}:5066"
+    # Platform-aware WebSocket URL
+    client_type = request.headers.get("x-client-type", "").lower()
+    if client_type == "mobile":
+        # Native app → plain ws:// (no browser cert/mixed-content limits)
+        ws_url = settings.FS_WS_URL_MOBILE or settings.FS_WS_URL or f"ws://{settings.FS_HOST}:5066"
+    else:
+        # Web dashboard (https) → secure wss://
+        ws_url = settings.FS_WS_URL or f"ws://{settings.FS_HOST}:5066"
     sip_domain = settings.FS_SIP_DOMAIN or settings.FS_HOST
 
     # Include subscribed DID if user has one

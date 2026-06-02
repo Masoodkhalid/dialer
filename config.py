@@ -31,8 +31,10 @@ class Settings(BaseSettings):
     RECORDING_FORMAT: str = "wav"
 
     # WebRTC / WebPhone
-    FS_WS_URL: str = ""         # WebSocket URL for SIP.js, e.g. ws://1.2.3.4:5066
+    FS_WS_URL: str = ""         # WebSocket URL for the WEB dashboard (https page → wss://, e.g. wss://1.2.3.4:7443)
                                 # leave empty → auto-built from FS_HOST on port 5066
+    FS_WS_URL_MOBILE: str = ""  # WebSocket URL for the MOBILE app (native → plain ws:// is fine, e.g. ws://1.2.3.4:5066)
+                                # leave empty → falls back to FS_WS_URL
     FS_SIP_DOMAIN: str = ""     # SIP domain for user registration, defaults to FS_HOST
 
     # Web server
