@@ -114,6 +114,7 @@ class Call(BaseModel):
     campaign_id: str = ""
     caller_id: Optional[str] = None        # DID / caller ID used
     caller_username: Optional[str] = None  # user who initiated (for minute deduction)
+    bridge_to_caller: bool = False         # mobile quick-dial: bridge back to caller's own ext (not idle-agent pool)
     sip_code: Optional[str] = None         # SIP response code e.g. "200", "503"
     hangup_cause: Optional[str] = None     # FreeSWITCH cause e.g. "NORMAL_CLEARING"
 

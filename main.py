@@ -272,7 +272,9 @@ async def _global_on_answer(event) -> None:
     sip_domain = settings.FS_SIP_DOMAIN or settings.FS_HOST
 
     # ── Mobile quick-dial: bridge back to the caller's own SIP extension ──────
-    if call.caller_username:
+    # Only when explicitly requested by the mobile app (bridge_to_caller flag).
+    # Web quick-dial leaves this False and falls through to the idle-agent pool.
+    if call.bridge_to_caller and call.caller_username:
         caller_user = users.get(call.caller_username)
         if caller_user and caller_user.extension:
             logger.info("Mobile quick-dial answered: bridging back to %s ext=%s",
@@ -1206,8 +1208,11 @@ async def quick_dial(body: dict, payload: dict = Depends(require_any)):
     if not caller_id:
         caller_id = settings.CALLER_ID_NUMBER
     contact = Contact(phone=phone, name=body.get("name", "Quick Dial"))
+    # Mobile app sets bridge_to_caller=true → call is bridged back to the caller's
+    # own SIP extension. Web dashboard omits it → uses the idle-agent pool (original behavior).
+    bridge_to_caller = bool(body.get("bridge_to_caller", False))
     call = Call(contact=contact, campaign_id="quick", caller_id=caller_id,
-                caller_username=username)
+                caller_username=username, bridge_to_caller=bridge_to_caller)
     call_mgr.add(call)
 
     try:
