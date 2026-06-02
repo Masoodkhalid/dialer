@@ -132,9 +132,22 @@ class CallManager:
     def on_failed(self, job_uuid: str, reason: str = "") -> Optional[Call]:
         call = self.by_job_uuid(job_uuid)
         if call:
-            call.status = CallStatus.FAILED
-            call.end_time = datetime.utcnow()
-            logger.debug("Call failed job=%s reason=%s", job_uuid, reason)
+            # Don't override if CHANNEL_HANGUP already marked it terminal
+            if call.status in (CallStatus.COMPLETED, CallStatus.DROPPED):
+                logger.debug("on_failed skipped (already %s) job=%s", call.status, job_uuid)
+                return call
+            reason_up = (reason or "").upper()
+            if any(x in reason_up for x in ("NO_ANSWER", "NO_USER_RESPONSE", "USER_BUSY")):
+                call.status = CallStatus.DROPPED   # "no answer" / busy — not a hard failure
+                if "USER_BUSY" in reason_up:
+                    call.hangup_cause = "USER_BUSY"
+                else:
+                    call.hangup_cause = "NO_ANSWER"
+            else:
+                call.status = CallStatus.FAILED
+            if not call.end_time:
+                call.end_time = datetime.utcnow()
+            logger.debug("Call on_failed job=%s reason=%r → status=%s", job_uuid, reason, call.status)
         return call
 
     def set_disposition(self, call_id: str, disposition: str, notes: str = "") -> Optional[Call]:
