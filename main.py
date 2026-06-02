@@ -16,6 +16,7 @@ from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -357,6 +358,16 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AI Predictive Dialer", version="1.0.0", lifespan=lifespan)
+
+# Allow Flutter web (localhost) and the mobile app to call the API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],          # tighten to specific origins in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 
