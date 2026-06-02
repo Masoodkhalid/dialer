@@ -572,6 +572,14 @@ async def delete_user(username: str, payload: dict = Depends(require_admin)):
     return {"status": "deleted"}
 
 
+# ── User-facing DID list (for mobile DID picker) ───────────────────────────────
+
+@app.get("/dids")
+async def list_dids_user(payload: dict = Depends(require_any)):
+    """Return all active DIDs — used by the mobile app DID selector."""
+    return [d for d in dids if d.active]
+
+
 # ── Admin: DID management ──────────────────────────────────────────────────────
 
 @app.get("/admin/dids")
@@ -1154,9 +1162,18 @@ async def quick_dial(body: dict, payload: dict = Depends(require_any)):
     phone = (body.get("phone") or "").strip()
     if not phone:
         raise HTTPException(400, "phone required")
-    caller_id = (body.get("caller_id") or settings.CALLER_ID_NUMBER).strip()
 
     username = payload.get("username")
+
+    # Resolve caller ID: request body → subscription DID → env default
+    caller_id = (body.get("caller_id") or "").strip()
+    if not caller_id:
+        sub = subscriptions.get(username or "")
+        if sub and sub.is_active and sub.did_number:
+            caller_id = sub.did_number
+            logger.info("quick_dial: using subscription DID %s as caller_id for %s", caller_id, username)
+    if not caller_id:
+        caller_id = settings.CALLER_ID_NUMBER
     contact = Contact(phone=phone, name=body.get("name", "Quick Dial"))
     call = Call(contact=contact, campaign_id="quick", caller_id=caller_id,
                 caller_username=username)
