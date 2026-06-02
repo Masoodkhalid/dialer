@@ -21,16 +21,18 @@ def _default(obj: Any) -> Any:
 
 
 def save(agents: list, campaigns: dict, calls: list,
-         users: list = None, dids: list = None) -> None:
+         users: list = None, dids: list = None,
+         subscriptions: list = None) -> None:
     """Write current state to disk."""
     try:
         data = {
-            "agents":    [a.model_dump(mode="json") for a in agents],
-            "campaigns": [c.model_dump(mode="json") for c in campaigns.values()],
-            "calls":     [c.model_dump(mode="json") for c in calls
-                          if c.status.value in ("completed", "dropped", "failed")],
-            "users":     [u.model_dump(mode="json") for u in (users or [])],
-            "dids":      [d.model_dump(mode="json") for d in (dids or [])],
+            "agents":        [a.model_dump(mode="json") for a in agents],
+            "campaigns":     [c.model_dump(mode="json") for c in campaigns.values()],
+            "calls":         [c.model_dump(mode="json") for c in calls
+                              if c.status.value in ("completed", "dropped", "failed")],
+            "users":         [u.model_dump(mode="json") for u in (users or [])],
+            "dids":          [d.model_dump(mode="json") for d in (dids or [])],
+            "subscriptions": [s.model_dump(mode="json") for s in (subscriptions or [])],
         }
         tmp = STORAGE_FILE + ".tmp"
         with open(tmp, "w") as f:

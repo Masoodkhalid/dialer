@@ -43,6 +43,7 @@ from models import (
     CampaignStatus,
     Contact,
     DID,
+    Subscription,
     User,
     UserCreate,
     UserRole,
@@ -65,13 +66,14 @@ ai = AIAnalyzer(api_key=settings.ANTHROPIC_API_KEY, model=settings.CLAUDE_MODEL)
 campaigns: Dict[str, Campaign] = {}
 engines: Dict[str, DialerEngine] = {}
 admin_ws_clients: List[WebSocket] = []
-users: Dict[str, User] = {}      # username → User
+users: Dict[str, User] = {}              # username → User
 dids: List[DID] = []
+subscriptions: Dict[str, Subscription] = {}  # username → Subscription
 
 
 def _save() -> None:
     storage.save(agent_mgr.list_all(), campaigns, call_mgr.all_calls(),
-                 list(users.values()), dids)
+                 list(users.values()), dids, list(subscriptions.values()))
 
 
 def _load_persisted() -> None:
@@ -89,9 +91,13 @@ def _load_persisted() -> None:
                 users[user.username] = user
             for d in data.get("dids", []):
                 dids.append(DID(**d))
-            logger.info("Loaded persisted state: %d campaigns, %d calls, %d users, %d DIDs",
+            for s in data.get("subscriptions", []):
+                sub = Subscription(**s)
+                subscriptions[sub.username] = sub
+            logger.info("Loaded persisted state: %d campaigns, %d calls, %d users, %d DIDs, %d subs",
                         len(data.get("campaigns", [])), len(data.get("calls", [])),
-                        len(data.get("users", [])), len(data.get("dids", [])))
+                        len(data.get("users", [])), len(data.get("dids", [])),
+                        len(data.get("subscriptions", [])))
         except Exception as exc:
             logger.error("Failed to restore persisted state: %s", exc)
 
@@ -329,6 +335,30 @@ async def _global_on_hangup(event) -> None:
         return
     if call.agent_id:
         await agent_mgr.release_call(call.agent_id)
+
+    # ── Deduct minutes from subscription (quick-dial only) ────────────────
+    if call.caller_username and call.duration:
+        sub = subscriptions.get(call.caller_username)
+        if sub and sub.is_active:
+            minutes_used = round(call.duration / 60, 4)
+            sub.minutes_used = round(sub.minutes_used + minutes_used, 4)
+            minutes_remaining = round(sub.minutes_total - sub.minutes_used, 4)
+            if minutes_remaining <= 0:
+                sub.is_active = False
+                sub.minutes_used = float(sub.minutes_total)  # cap at total
+                logger.info("Subscription EXPIRED for %s (used %.1f min)",
+                            call.caller_username, sub.minutes_total)
+            else:
+                logger.info("Subscription: %s used %.2f min (%.2f remaining)",
+                            call.caller_username, sub.minutes_used, minutes_remaining)
+            await broadcast("subscription_update", {
+                "username": sub.username,
+                "minutes_used": sub.minutes_used,
+                "minutes_total": sub.minutes_total,
+                "minutes_remaining": max(0, sub.minutes_total - sub.minutes_used),
+                "is_active": sub.is_active,
+            })
+
     _save()
     await broadcast("call_ended", call.model_dump())
 
@@ -421,13 +451,18 @@ async def agent_config(payload: dict = Depends(require_any)):
     ws_url = settings.FS_WS_URL or f"ws://{settings.FS_HOST}:5066"
     sip_domain = settings.FS_SIP_DOMAIN or settings.FS_HOST
 
+    # Include subscribed DID if user has one
+    sub = subscriptions.get(username)
+    subscribed_did = sub.did_number if sub else None
+
     return {
-        "extension":   user.extension,
-        "sip_password": user.sip_password,
-        "phone_type":  user.phone_type,
-        "ws_url":      ws_url,
-        "sip_domain":  sip_domain,
-        "display_name": username,
+        "extension":      user.extension,
+        "sip_password":   user.sip_password,
+        "phone_type":     user.phone_type,
+        "ws_url":         ws_url,
+        "sip_domain":     sip_domain,
+        "display_name":   username,
+        "subscribed_did": subscribed_did,
     }
 
 
@@ -577,6 +612,147 @@ async def delete_did(did_id: str, payload: dict = Depends(require_admin)):
         raise HTTPException(404, "DID not found")
     _save()
     return {"status": "deleted"}
+
+
+# ── DID Store ─────────────────────────────────────────────────────────────────
+
+@app.get("/store/plans")
+async def store_plans(payload: dict = Depends(require_any)):
+    """List DIDs available for purchase (for_sale=True, not yet owned)."""
+    available = [
+        {
+            "id":      d.id,
+            "number":  d.number,
+            "label":   d.label or f"USA Local Number",
+            "price":   d.price,
+            "minutes": d.minutes,
+            "country": "USA",
+        }
+        for d in dids
+        if d.active and d.for_sale and d.owner_username is None
+    ]
+    return available
+
+
+@app.post("/store/purchase/{did_id}")
+async def store_purchase(did_id: str, payload: dict = Depends(require_any)):
+    """Purchase a DID (dummy — no real payment). Creates subscription."""
+    username = payload.get("username")
+    user = users.get(username)
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    # Check no existing active subscription
+    existing = subscriptions.get(username)
+    if existing and existing.is_active:
+        raise HTTPException(400, "You already have an active plan. Renew instead.")
+
+    did = next((d for d in dids if d.id == did_id), None)
+    if not did:
+        raise HTTPException(404, "DID not found")
+    if not did.for_sale:
+        raise HTTPException(400, "This number is not available for purchase")
+    if did.owner_username and did.owner_username != username:
+        raise HTTPException(409, "This number has already been purchased")
+
+    # Mark DID as owned
+    did.owner_username = username
+
+    # Create / replace subscription
+    sub = Subscription(
+        username=username,
+        did_id=did.id,
+        did_number=did.number,
+        plan_name=f"USA {did.minutes}-min Pack",
+        price=did.price,
+        minutes_total=did.minutes,
+        minutes_used=0.0,
+        is_active=True,
+    )
+    subscriptions[username] = sub
+
+    # Assign DID as the user's caller ID (update their config for quick-dial)
+    # We store it via a convention: use the purchased DID as default caller_id
+    _save()
+    logger.info("PURCHASE: user=%s did=%s plan=%s", username, did.number, sub.plan_name)
+
+    return {
+        "status": "purchased",
+        "subscription": sub.model_dump(),
+        "did_number": did.number,
+        "minutes_total": sub.minutes_total,
+        "price_paid": sub.price,
+    }
+
+
+@app.get("/my/subscription")
+async def my_subscription(payload: dict = Depends(require_any)):
+    """Get the calling user's active subscription (if any)."""
+    username = payload.get("username")
+    sub = subscriptions.get(username)
+    if not sub:
+        return {"has_subscription": False}
+
+    minutes_remaining = max(0.0, round(sub.minutes_total - sub.minutes_used, 2))
+    return {
+        "has_subscription": True,
+        "id":               sub.id,
+        "did_number":       sub.did_number,
+        "plan_name":        sub.plan_name,
+        "price":            sub.price,
+        "minutes_total":    sub.minutes_total,
+        "minutes_used":     round(sub.minutes_used, 2),
+        "minutes_remaining": minutes_remaining,
+        "is_active":        sub.is_active,
+        "purchased_at":     sub.purchased_at.isoformat(),
+        "renewals":         sub.renewals,
+    }
+
+
+@app.post("/my/subscription/renew")
+async def renew_subscription(payload: dict = Depends(require_any)):
+    """Renew (top-up) 10 more minutes for $5 (dummy payment)."""
+    username = payload.get("username")
+    sub = subscriptions.get(username)
+    if not sub:
+        raise HTTPException(404, "No subscription found — purchase a plan first")
+
+    # Add 10 more minutes and reactivate
+    sub.minutes_total += 10
+    sub.is_active = True
+    sub.renewals += 1
+
+    _save()
+    minutes_remaining = max(0.0, round(sub.minutes_total - sub.minutes_used, 2))
+    logger.info("RENEW: user=%s renewal#%d total=%d remaining=%.1f",
+                username, sub.renewals, sub.minutes_total, minutes_remaining)
+
+    return {
+        "status":           "renewed",
+        "minutes_total":    sub.minutes_total,
+        "minutes_used":     round(sub.minutes_used, 2),
+        "minutes_remaining": minutes_remaining,
+        "renewals":         sub.renewals,
+        "price_paid":       5.0,
+    }
+
+
+# ── Admin: Store management ────────────────────────────────────────────────────
+
+@app.patch("/admin/dids/{did_id}/store")
+async def admin_did_store(did_id: str, body: dict, payload: dict = Depends(require_admin)):
+    """Admin: set price, minutes, for_sale flag on a DID."""
+    did = next((d for d in dids if d.id == did_id), None)
+    if not did:
+        raise HTTPException(404, "DID not found")
+    if "for_sale" in body:
+        did.for_sale = bool(body["for_sale"])
+    if "price" in body:
+        did.price = float(body["price"])
+    if "minutes" in body:
+        did.minutes = int(body["minutes"])
+    _save()
+    return did
 
 
 # ── Admin: Reports ─────────────────────────────────────────────────────────────
@@ -971,8 +1147,10 @@ async def quick_dial(body: dict, payload: dict = Depends(require_any)):
         raise HTTPException(400, "phone required")
     caller_id = (body.get("caller_id") or settings.CALLER_ID_NUMBER).strip()
 
+    username = payload.get("username")
     contact = Contact(phone=phone, name=body.get("name", "Quick Dial"))
-    call = Call(contact=contact, campaign_id="quick", caller_id=caller_id)
+    call = Call(contact=contact, campaign_id="quick", caller_id=caller_id,
+                caller_username=username)
     call_mgr.add(call)
 
     try:

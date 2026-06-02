@@ -64,6 +64,11 @@ class DID(BaseModel):
     number: str
     label: Optional[str] = None
     active: bool = True
+    # ── Store / purchase ─────────────────────────────────────────
+    for_sale: bool = True           # admin lists it in the store
+    price: float = 5.0              # price per package ($)
+    minutes: int = 10               # calling minutes per package
+    owner_username: Optional[str] = None  # None = available, set on purchase
 
 
 class Contact(BaseModel):
@@ -108,6 +113,7 @@ class Call(BaseModel):
     ai_sentiment: Optional[str] = None
     campaign_id: str = ""
     caller_id: Optional[str] = None        # DID / caller ID used
+    caller_username: Optional[str] = None  # user who initiated (for minute deduction)
     sip_code: Optional[str] = None         # SIP response code e.g. "200", "503"
     hangup_cause: Optional[str] = None     # FreeSWITCH cause e.g. "NORMAL_CLEARING"
 
@@ -172,3 +178,19 @@ class UserCreate(BaseModel):
 class WSMessage(BaseModel):
     type: str
     data: Any
+
+
+# ── DID Store / Subscription ───────────────────────────────────────────────────
+
+class Subscription(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    username: str
+    did_id: str
+    did_number: str
+    plan_name: str = "USA 10-min Pack"
+    price: float = 5.0
+    minutes_total: int = 10          # total purchased minutes
+    minutes_used: float = 0.0        # minutes consumed (float for seconds precision)
+    purchased_at: datetime = Field(default_factory=datetime.utcnow)
+    is_active: bool = True
+    renewals: int = 0                # how many times renewed
