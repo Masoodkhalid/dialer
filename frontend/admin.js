@@ -37,9 +37,10 @@ function showSection(name, btn) {
   document.getElementById('sec-' + name).classList.add('active');
   btn.classList.add('active');
   closeAdmSidebar();
-  if (name === 'reports') loadReports();
-  if (name === 'users')   loadUsers();
-  if (name === 'dids')    loadDids();
+  if (name === 'reports')     loadReports();
+  if (name === 'users')       loadUsers();
+  if (name === 'dids')        loadDids();
+  if (name === 'subscribers') loadSubscribers();
 }
 
 // ── API ────────────────────────────────────────────────────────────────────────
@@ -542,6 +543,115 @@ async function deleteDid(id, number) {
   } catch (err) {
     alert('✗ ' + err.message);
   }
+}
+
+// ── Subscribers ────────────────────────────────────────────────────────────────
+let _allSubscribers = [];
+
+async function loadSubscribers() {
+  const tbody = document.getElementById('sub-tbody');
+  tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted)">Loading…</td></tr>';
+  try {
+    _allSubscribers = await api('GET', '/admin/subscribers');
+    renderSubscribers(_allSubscribers);
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;color:var(--red-l)">${err.message}</td></tr>`;
+  }
+}
+
+function renderSubscribers(rows) {
+  const tbody  = document.getElementById('sub-tbody');
+  const total  = rows.length;
+  const active = rows.filter(r => r.has_subscription && r.subscription?.is_active).length;
+  const cancelled = rows.filter(r => r.cancelled_at).length;
+  const dids   = rows.filter(r => r.did_number).length;
+
+  document.getElementById('sub-total').textContent     = total;
+  document.getElementById('sub-active').textContent    = active;
+  document.getElementById('sub-cancelled').textContent = cancelled;
+  document.getElementById('sub-dids').textContent      = dids;
+  document.getElementById('sub-count').textContent     = `${total} users`;
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted)">No subscribers found</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map(r => {
+    const sub       = r.subscription;
+    const isActive  = sub?.is_active;
+    const statusBadge = isActive
+      ? '<span style="background:rgba(16,185,129,.15);color:#6ee7b7;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">ACTIVE</span>'
+      : r.did_number
+        ? '<span style="background:rgba(239,68,68,.15);color:#fca5a5;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">CANCELLED</span>'
+        : '<span style="background:rgba(71,85,105,.2);color:#94a3b8;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">NO PLAN</span>';
+
+    const minLeft = sub
+      ? `${Math.max(0, Math.round((sub.minutes_total || 0) - (sub.minutes_used || 0)))} min`
+      : '—';
+
+    const fmt = iso => iso ? new Date(iso).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}) : '—';
+
+    return `<tr>
+      <td style="color:var(--muted);font-family:monospace;font-size:10px">${(r.id||'').slice(0,8)}…</td>
+      <td><strong>${esc(r.username)}</strong></td>
+      <td style="color:var(--text2)">${esc(r.email || '—')}</td>
+      <td style="color:var(--purple-l)">${r.extension ? `Ext ${r.extension}` : '—'}</td>
+      <td>${r.did_number ? `<span style="color:var(--green-l);font-family:monospace">${fmt_phone(r.did_number)}</span>` : '—'}</td>
+      <td>${sub?.plan_name ? esc(sub.plan_name) : '—'}</td>
+      <td>${minLeft}</td>
+      <td>${fmt(sub?.purchased_at || r.subscription_started)}</td>
+      <td style="color:var(--red-l)">${fmt(r.cancelled_at)}</td>
+      <td>${statusBadge}</td>
+      <td style="color:var(--muted)">${fmt(r.created_at)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function filterSubscribers() {
+  const q      = (document.getElementById('sub-search').value || '').toLowerCase();
+  const status = document.getElementById('sub-filter-status').value;
+  const rows   = _allSubscribers.filter(r => {
+    const matchQ = !q || r.username.toLowerCase().includes(q) || (r.email||'').toLowerCase().includes(q);
+    const isActive = r.subscription?.is_active;
+    const matchS = !status
+      || (status === 'active' && isActive)
+      || (status === 'none' && !isActive);
+    return matchQ && matchS;
+  });
+  renderSubscribers(rows);
+}
+
+function exportSubscribersCSV() {
+  const rows = _allSubscribers;
+  if (!rows.length) return;
+  const fmt = iso => iso ? new Date(iso).toLocaleDateString() : '';
+  const header = ['ID','Username','Email','Extension','DID','Plan','MinLeft','PurchaseDate','CancelledDate','Status','Joined'];
+  const lines  = rows.map(r => {
+    const sub = r.subscription;
+    const minLeft = sub ? Math.max(0, Math.round((sub.minutes_total||0)-(sub.minutes_used||0))) : '';
+    return [
+      r.id, r.username, r.email||'', r.extension||'', r.did_number||'',
+      sub?.plan_name||'', minLeft,
+      fmt(sub?.purchased_at), fmt(r.cancelled_at),
+      sub?.is_active ? 'Active' : r.did_number ? 'Cancelled' : 'No Plan',
+      fmt(r.created_at),
+    ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(',');
+  });
+  const blob = new Blob([[header.join(','), ...lines].join('\n')], {type:'text/csv'});
+  const a = Object.assign(document.createElement('a'), {href:URL.createObjectURL(blob), download:'subscribers.csv'});
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+function fmt_phone(n) {
+  const s = String(n).replace(/\D/g,'');
+  return s.length === 11 && s[0] === '1'
+    ? `+1 (${s.slice(1,4)}) ${s.slice(4,7)}-${s.slice(7)}`
+    : '+' + s;
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────────

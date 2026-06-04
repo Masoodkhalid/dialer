@@ -58,6 +58,12 @@
       </svg>
       DID Numbers
     </button>
+    <button class="adm-nav-item" onclick="showSection('subscribers',this)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+      </svg>
+      Subscribers
+    </button>
     <div style="flex:1"></div>
     <button class="adm-nav-item" onclick="window.open('/','_blank')">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -355,6 +361,75 @@
               <tr><th>Number</th><th>Label</th><th>Status</th><th>Actions</th></tr>
             </thead>
             <tbody id="did-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ SUBSCRIBERS ══ -->
+    <section id="sec-subscribers" class="adm-section">
+      <div class="adm-card">
+        <div class="adm-card-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+          Subscriber Analytics
+          <span id="sub-count" style="margin-left:6px;font-size:10px;color:var(--muted);font-weight:400"></span>
+          <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="loadSubscribers()">↻ Refresh</button>
+          <button class="btn btn-ghost btn-sm" onclick="exportSubscribersCSV()">⬇ CSV</button>
+        </div>
+
+        <!-- KPI row -->
+        <div class="kpi-grid" style="margin-bottom:16px">
+          <div class="kpi-card kpi-purple">
+            <div class="kpi-val" id="sub-total">—</div>
+            <div class="kpi-lbl">Total Users</div>
+          </div>
+          <div class="kpi-card kpi-green">
+            <div class="kpi-val" id="sub-active">—</div>
+            <div class="kpi-lbl">Active Plans</div>
+          </div>
+          <div class="kpi-card kpi-red">
+            <div class="kpi-val" id="sub-cancelled">—</div>
+            <div class="kpi-lbl">No Plan</div>
+          </div>
+          <div class="kpi-card kpi-blue">
+            <div class="kpi-val" id="sub-dids">—</div>
+            <div class="kpi-lbl">DIDs Assigned</div>
+          </div>
+        </div>
+
+        <!-- Search -->
+        <div class="filter-row" style="margin-bottom:10px">
+          <input class="input" id="sub-search" placeholder="🔍 Search username or email…"
+            oninput="filterSubscribers()" style="max-width:260px"/>
+          <select class="input" id="sub-filter-status" onchange="filterSubscribers()" style="max-width:150px">
+            <option value="">All status</option>
+            <option value="active">Active plan</option>
+            <option value="none">No plan</option>
+          </select>
+        </div>
+
+        <div style="overflow:auto;border-radius:var(--radius);border:1px solid var(--border)">
+          <table id="sub-table" style="font-size:11px">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Username</th>
+                <th>Email</th>
+                <th>Extension</th>
+                <th>DID Assigned</th>
+                <th>Plan</th>
+                <th>Minutes Left</th>
+                <th>Purchase Date</th>
+                <th>Cancelled Date</th>
+                <th>Status</th>
+                <th>Joined</th>
+              </tr>
+            </thead>
+            <tbody id="sub-tbody">
+              <tr><td colspan="11" style="text-align:center;color:var(--muted)">Loading…</td></tr>
+            </tbody>
           </table>
         </div>
       </div>
