@@ -490,16 +490,28 @@ function renderDids() {
     const statusDot = d.active
       ? '<span class="dot-active">● Active</span>'
       : '<span class="dot-inactive">● Inactive</span>';
+    const forSaleBadge = d.for_sale
+      ? '<span style="background:rgba(16,185,129,.15);color:#6ee7b7;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">Listed</span>'
+      : '<span style="background:rgba(71,85,105,.2);color:#94a3b8;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">Not Listed</span>';
+    const owner = d.owner_username
+      ? `<span style="color:var(--purple-l);font-size:10px">👤 ${d.owner_username}</span>`
+      : '';
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td class="did-num">${d.number}</td>
+      <td class="did-num" style="font-family:monospace">${d.number}</td>
       <td>${d.label || '—'}</td>
-      <td>${statusDot}</td>
-      <td style="display:flex;gap:6px">
+      <td>${statusDot} ${owner}</td>
+      <td>${forSaleBadge}</td>
+      <td style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn ${d.active ? 'btn-amber' : 'btn-green'}"
                 style="padding:3px 10px;font-size:10px"
                 onclick="toggleDid('${d.id}',${!d.active})">
           ${d.active ? 'Deactivate' : 'Activate'}
+        </button>
+        <button class="btn ${d.for_sale ? 'btn-red' : 'btn-purple'}"
+                style="padding:3px 10px;font-size:10px"
+                onclick="toggleForSale('${d.id}',${!d.for_sale})">
+          ${d.for_sale ? '✕ Delist' : '+ List for Sale'}
         </button>
         <button class="btn btn-red" style="padding:3px 10px;font-size:10px"
                 onclick="deleteDid('${d.id}','${d.number}')">Delete</button>
@@ -529,6 +541,15 @@ async function addDid() {
 async function toggleDid(id, active) {
   try {
     await api('PATCH', `/admin/dids/${id}`, { active });
+    await loadDids();
+  } catch (err) {
+    alert('✗ ' + err.message);
+  }
+}
+
+async function toggleForSale(id, forSale) {
+  try {
+    await api('PATCH', `/admin/dids/${id}`, { for_sale: forSale });
     await loadDids();
   } catch (err) {
     alert('✗ ' + err.message);
