@@ -1,0 +1,6 @@
+
+# local dev data & junk (never deploy)
+dialer_data.json
+__pycache__/
+node_modules/
+.DS_Store

@@ -29,6 +29,7 @@ setInterval(() => {
 let _allCalls = [];
 let _allUsers = [];
 let _allDids  = [];
+let _allInbound = [];
 
 // ── Sections ───────────────────────────────────────────────────────────────────
 function showSection(name, btn) {
@@ -41,6 +42,7 @@ function showSection(name, btn) {
   if (name === 'users')       loadUsers();
   if (name === 'dids')        loadDids();
   if (name === 'subscribers') loadSubscribers();
+  if (name === 'inbound')     loadInbound();
 }
 
 // ── API ────────────────────────────────────────────────────────────────────────
@@ -673,6 +675,92 @@ function fmt_phone(n) {
 
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Inbound calls ────────────────────────────────────────────────────────────────
+async function loadInbound() {
+  const tbody = document.getElementById('inb-tbody');
+  tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted)">Loading…</td></tr>';
+  try {
+    const data = await api('GET', '/admin/inbound');
+    _allInbound = data.calls || [];
+    const s = data.stats || {};
+    document.getElementById('inb-total').textContent    = s.total    ?? 0;
+    document.getElementById('inb-answered').textContent = s.answered ?? 0;
+    document.getElementById('inb-missed').textContent   = s.missed   ?? 0;
+    document.getElementById('inb-live').textContent     = s.live     ?? 0;
+    document.getElementById('inb-today').textContent    = s.today    ?? 0;
+    renderInbound(_allInbound);
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--red-l)">${err.message}</td></tr>`;
+  }
+}
+
+function inboundBadge(status) {
+  const map = {
+    answered:  ['rgba(16,185,129,.15)', '#6ee7b7', 'ANSWERED'],
+    completed: ['rgba(16,185,129,.15)', '#6ee7b7', 'COMPLETED'],
+    ringing:   ['rgba(245,158,11,.15)', '#fcd34d', 'RINGING'],
+    missed:    ['rgba(239,68,68,.15)',  '#fca5a5', 'MISSED'],
+    rejected:  ['rgba(239,68,68,.15)',  '#fca5a5', 'REJECTED'],
+    failed:    ['rgba(239,68,68,.15)',  '#fca5a5', 'FAILED'],
+  };
+  const [bg, fg, label] = map[status] || ['rgba(71,85,105,.2)', '#94a3b8', (status||'—').toUpperCase()];
+  return `<span style="background:${bg};color:${fg};padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700">${label}</span>`;
+}
+
+function renderInbound(rows) {
+  const tbody = document.getElementById('inb-tbody');
+  document.getElementById('inb-count').textContent = `${rows.length} calls`;
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted)">No inbound calls yet</td></tr>';
+    return;
+  }
+
+  const fmtTime = iso => iso
+    ? new Date(iso).toLocaleString('en-US', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})
+    : '—';
+
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td style="color:var(--muted);white-space:nowrap">${fmtTime(r.start_time)}</td>
+      <td><strong style="font-family:monospace">${fmt_phone(r.caller)}</strong></td>
+      <td style="color:var(--green-l);font-family:monospace">${fmt_phone(r.did)}</td>
+      <td>${r.owner_username ? esc(r.owner_username) : '<span style="color:var(--muted)">—</span>'}</td>
+      <td style="color:var(--purple-l)">${r.extension ? `Ext ${esc(r.extension)}` : '—'}</td>
+      <td>${inboundBadge(r.status)}</td>
+      <td>${r.duration ? fmtDur(r.duration) : '—'}</td>
+      <td style="color:var(--muted);font-size:10px">${esc(r.hangup_cause || '—')}</td>
+    </tr>`).join('');
+}
+
+function filterInbound() {
+  const q      = (document.getElementById('inb-search').value || '').toLowerCase();
+  const status = document.getElementById('inb-filter-status').value;
+  const rows = _allInbound.filter(r => {
+    const matchQ = !q
+      || String(r.caller||'').toLowerCase().includes(q)
+      || String(r.did||'').toLowerCase().includes(q)
+      || String(r.owner_username||'').toLowerCase().includes(q);
+    const matchS = !status || r.status === status;
+    return matchQ && matchS;
+  });
+  renderInbound(rows);
+}
+
+function exportInboundCSV() {
+  const rows = _allInbound;
+  if (!rows.length) return;
+  const fmt = iso => iso ? new Date(iso).toLocaleString() : '';
+  const header = ['Time','Caller','DID','ReceivedBy','Extension','Status','TalkSeconds','HangupCause'];
+  const lines  = rows.map(r => [
+    fmt(r.start_time), r.caller||'', r.did||'', r.owner_username||'',
+    r.extension||'', r.status||'', r.duration||0, r.hangup_cause||'',
+  ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(','));
+  const blob = new Blob([[header.join(','), ...lines].join('\n')], {type:'text/csv'});
+  const a = Object.assign(document.createElement('a'), {href:URL.createObjectURL(blob), download:'inbound_calls.csv'});
+  document.body.appendChild(a); a.click(); a.remove();
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────────

@@ -64,6 +64,13 @@
       </svg>
       Subscribers
     </button>
+    <button class="adm-nav-item" onclick="showSection('inbound',this)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M16 2v6h6"/><path d="M21 8 15 2"/>
+        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.14 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.05 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 17z"/>
+      </svg>
+      Inbound Calls
+    </button>
     <div style="flex:1"></div>
     <button class="adm-nav-item" onclick="window.open('/','_blank')">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -429,6 +436,80 @@
             </thead>
             <tbody id="sub-tbody">
               <tr><td colspan="11" style="text-align:center;color:var(--muted)">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ INBOUND CALLS ══ -->
+    <section id="sec-inbound" class="adm-section">
+      <div class="adm-card">
+        <div class="adm-card-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M16 2v6h6"/><path d="M21 8 15 2"/>
+            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.14 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.05 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 17z"/>
+          </svg>
+          Inbound Call Tracking
+          <span id="inb-count" style="margin-left:6px;font-size:10px;color:var(--muted);font-weight:400"></span>
+          <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="loadInbound()">↻ Refresh</button>
+          <button class="btn btn-ghost btn-sm" onclick="exportInboundCSV()">⬇ CSV</button>
+        </div>
+
+        <!-- KPI row -->
+        <div class="kpi-grid" style="margin-bottom:16px">
+          <div class="kpi-card kpi-blue">
+            <div class="kpi-val" id="inb-total">—</div>
+            <div class="kpi-lbl">Total Inbound</div>
+          </div>
+          <div class="kpi-card kpi-green">
+            <div class="kpi-val" id="inb-answered">—</div>
+            <div class="kpi-lbl">Answered</div>
+          </div>
+          <div class="kpi-card kpi-red">
+            <div class="kpi-val" id="inb-missed">—</div>
+            <div class="kpi-lbl">Missed / Rejected</div>
+          </div>
+          <div class="kpi-card kpi-amber">
+            <div class="kpi-val" id="inb-live">—</div>
+            <div class="kpi-lbl">Live Now</div>
+          </div>
+          <div class="kpi-card kpi-purple">
+            <div class="kpi-val" id="inb-today">—</div>
+            <div class="kpi-lbl">Today</div>
+          </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="filter-row" style="margin-bottom:10px">
+          <input class="input" id="inb-search" placeholder="🔍 Search caller, DID or user…"
+            oninput="filterInbound()" style="max-width:260px"/>
+          <select class="input" id="inb-filter-status" onchange="filterInbound()" style="max-width:170px">
+            <option value="">All status</option>
+            <option value="answered">Answered</option>
+            <option value="completed">Completed</option>
+            <option value="missed">Missed</option>
+            <option value="rejected">Rejected</option>
+            <option value="ringing">Ringing</option>
+          </select>
+        </div>
+
+        <div style="overflow:auto;border-radius:var(--radius);border:1px solid var(--border)">
+          <table id="inb-table" style="font-size:11px">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Caller</th>
+                <th>DID Called</th>
+                <th>Received By</th>
+                <th>Extension</th>
+                <th>Status</th>
+                <th>Talk Time</th>
+                <th>Hangup Cause</th>
+              </tr>
+            </thead>
+            <tbody id="inb-tbody">
+              <tr><td colspan="8" style="text-align:center;color:var(--muted)">Loading…</td></tr>
             </tbody>
           </table>
         </div>

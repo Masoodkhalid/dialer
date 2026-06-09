@@ -30,6 +30,7 @@ from call_manager import CallManager
 from config import settings
 from dialer_engine import DialerEngine
 from esl_client import ESLClient
+from inbound_handler import InboundRouter, normalize_number
 import storage
 from models import (
     Agent,
@@ -69,6 +70,30 @@ admin_ws_clients: List[WebSocket] = []
 users: Dict[str, User] = {}              # username → User
 dids: List[DID] = []
 subscriptions: Dict[str, Subscription] = {}  # username → Subscription
+
+
+# ── Inbound calling (isolated — see inbound_handler.py) ─────────────────────────
+def _inbound_owner_extension(dialed_digits: str):
+    """Given a dialed DID (bare digits), return (extension, username) of the owner.
+
+    Read-only over existing state; does not touch outbound logic. An active
+    subscription takes priority, then raw DID ownership as a fallback. Returns
+    None if the number is unowned or the owner has no extension.
+    """
+    for sub in subscriptions.values():
+        if sub.is_active and normalize_number(sub.did_number) == dialed_digits:
+            user = users.get(sub.username)
+            if user and user.extension:
+                return (user.extension, user.username)
+    for did in dids:
+        if did.owner_username and normalize_number(did.number) == dialed_digits:
+            user = users.get(did.owner_username)
+            if user and user.extension:
+                return (user.extension, user.username)
+    return None
+
+
+inbound_router = InboundRouter(esl, _inbound_owner_extension)
 
 
 def _save() -> None:
@@ -411,7 +436,10 @@ async def lifespan(app: FastAPI):
         await esl.subscribe(
             "CHANNEL_CREATE", "CHANNEL_ANSWER", "CHANNEL_HANGUP",
             "CHANNEL_BRIDGE", "CHANNEL_UNBRIDGE", "BACKGROUND_JOB", "CUSTOM",
+            "CHANNEL_PARK",   # inbound calling (handled by InboundRouter)
         )
+        # Inbound DID routing — isolated handler, does not affect outbound.
+        inbound_router.register()
         logger.info("FreeSWITCH ESL ready")
     except Exception as exc:
         logger.warning("Could not connect to FreeSWITCH ESL: %s", exc)
@@ -891,6 +919,17 @@ async def report_summary(payload: dict = Depends(require_admin)):
         "hangup_causes":     causes,
         "statuses":          statuses,
         "agent_performance": agent_perf,
+    }
+
+
+# ── Admin: Inbound call tracking (isolated — data from InboundRouter) ────────────
+@app.get("/admin/inbound")
+async def admin_inbound(payload: dict = Depends(require_admin)):
+    """Inbound call log + KPIs. Sourced entirely from the isolated InboundRouter;
+    does not read or affect outbound call state."""
+    return {
+        "stats": inbound_router.stats(),
+        "calls": inbound_router.recent_calls(limit=300),
     }
 
 

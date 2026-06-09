@@ -1,0 +1,35 @@
+<!--
+  FreeSWITCH Inbound Dialplan  (callingio inbound calling)
+  Save on server at: /etc/freeswitch/dialplan/public/02_inbound.xml
+
+  This is SEPARATE from the outbound dialplan (01_outbound.xml in
+  dialplan/default/). It lives in the PUBLIC context, where the carrier
+  delivers calls dialed to your purchased DIDs.
+
+  What it does:
+    * Matches inbound calls to any US/Canada DID (10 or 11 digits).
+    * Tags the call with callingio_inbound=true and parks it.
+    * The Python InboundRouter (inbound_handler.py) sees CHANNEL_PARK,
+      looks up which user owns the DID, and rings their SIP extension
+      (the callingio mobile app).
+
+  It does NOT bridge directly to a static extension because DID ownership
+  is dynamic (set at purchase time) and only the backend knows the mapping.
+
+  NOTE: place this AFTER any operator/emergency rules but it is intentionally
+  scoped to numeric DIDs so it won't capture internal extension dialing.
+-->
+<include>
+  <context name="public">
+    <extension name="callingio_inbound">
+      <!-- Match 10-digit or 1+10-digit destination numbers (your DIDs) -->
+      <condition field="destination_number" expression="^(\+?1?\d{10})$">
+        <action application="set"  data="callingio_inbound=true"/>
+        <!-- Keep ringing audio for the caller while the app is alerted -->
+        <action application="ring_ready"/>
+        <!-- Hand control to the backend ESL router via park -->
+        <action application="park"/>
+      </condition>
+    </extension>
+  </context>
+</include>
