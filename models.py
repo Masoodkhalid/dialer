@@ -57,6 +57,8 @@ class User(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     phone_type: str = "softphone"           # "softphone" or "webphone"
     sip_password: Optional[str] = None      # FreeSWITCH SIP auth password (for webphone)
+    email: Optional[str] = None             # email address (optional)
+    app_id: Optional[str] = None            # which mobile app created this user (multi-tenant)
 
 
 class DID(BaseModel):
@@ -195,3 +197,5 @@ class Subscription(BaseModel):
     purchased_at: datetime = Field(default_factory=datetime.utcnow)
     is_active: bool = True
     renewals: int = 0                # how many times renewed
+    cancelled_at: Optional[datetime] = None
+    app_id: Optional[str] = None     # which app this subscription belongs to

@@ -564,7 +564,8 @@ async def update_agent_preferences(body: dict, payload: dict = Depends(require_a
 async def list_users(payload: dict = Depends(require_admin)):
     return [
         {"id": u.id, "username": u.username, "role": u.role,
-         "extension": u.extension, "agent_id": u.agent_id, "created_at": u.created_at}
+         "extension": u.extension, "agent_id": u.agent_id, "created_at": u.created_at,
+         "email": getattr(u, "email", None), "app_id": getattr(u, "app_id", None)}
         for u in users.values()
     ]
 
@@ -1357,3 +1358,191 @@ async def agent_ws(ws: WebSocket, agent_id: str):
 
     await asyncio.gather(reader(), writer(), return_exceptions=True)
     agent_mgr.detach_ws_queue(agent_id)
+
+
+# ── Self-registration (mobile apps) ───────────────────────────────────────────
+
+@app.post("/auth/register")
+async def register_user(request: Request, body: dict):
+    username = (body.get("username") or "").strip().lower()
+    password = (body.get("password") or "").strip()
+    email    = (body.get("email")    or "").strip() or None
+    app_id   = (body.get("app_id")   or request.headers.get("x-app-id") or "default").strip()
+
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="username and password required")
+    if username in users:
+        raise HTTPException(status_code=409, detail="Username already taken")
+
+    used_exts = [int(u.extension) for u in users.values()
+                 if getattr(u, "extension", None) and str(getattr(u, "extension", "")).isdigit()]
+    next_ext = str(max(used_exts, default=999) + 1)
+
+    user = User(
+        username=username,
+        password_hash=hash_password(password),
+        role=UserRole.USER,
+        extension=next_ext,
+        sip_password=password,
+        email=email,
+        app_id=app_id,
+    )
+
+    try:
+        agent = Agent(name=username, extension=next_ext, phone_type="webphone")
+        agent_mgr.register(agent)
+        user.agent_id = agent.id
+    except Exception as e:
+        logger.warning("Agent create failed for %s: %s", username, e)
+
+    users[username] = user
+    _save()
+    logger.info("REGISTER: user=%s ext=%s app=%s", username, next_ext, app_id)
+    return {"message": "Account created", "username": username, "extension": next_ext}
+
+
+# ── Cancel subscription ────────────────────────────────────────────────────────
+
+@app.delete("/my/subscription")
+async def cancel_my_subscription(payload: dict = Depends(require_any)):
+    import json as _json, os as _os
+    from datetime import datetime as _dt
+
+    username = payload.get("username", "")
+    sub = subscriptions.get(username)
+    if not sub:
+        raise HTTPException(status_code=404, detail="No active subscription")
+
+    hist_path = os.path.join(os.path.dirname(__file__), "subscription_history.json")
+    hist = _json.load(open(hist_path)) if _os.path.exists(hist_path) else []
+    hist.append({
+        "username":      username,
+        "app_id":        getattr(sub, "app_id", None) or getattr(users.get(username), "app_id", None),
+        "did_number":    getattr(sub, "did_number", None),
+        "plan_name":     getattr(sub, "plan_name", ""),
+        "purchased_at":  str(getattr(sub, "purchased_at", "") or ""),
+        "cancelled_at":  _dt.utcnow().isoformat(),
+        "minutes_total": getattr(sub, "minutes_total", 0),
+        "minutes_used":  round(getattr(sub, "minutes_used", 0) or 0, 2),
+        "price":         getattr(sub, "price", 5.0),
+    })
+    _json.dump(hist, open(hist_path, "w"), indent=2, default=str)
+
+    sub.is_active = False
+    try:
+        sub.cancelled_at = _dt.utcnow()
+    except Exception:
+        pass
+
+    did_number = getattr(sub, "did_number", None)
+    if did_number:
+        match = next((d for d in dids if d.number == did_number), None)
+        if match:
+            match.active = False
+            match.for_sale = False
+            match.owner_username = None
+
+    _save()
+    return {"message": "Subscription cancelled"}
+
+
+# ── Admin: subscribers analytics ──────────────────────────────────────────────
+
+@app.get("/admin/subscribers")
+async def get_subscribers(payload: dict = Depends(require_admin)):
+    import json as _json, os as _os
+
+    def safe_dt(v):
+        if v is None:
+            return None
+        try:
+            return v.isoformat()
+        except Exception:
+            return str(v) if v else None
+
+    hist_path = os.path.join(os.path.dirname(__file__), "subscription_history.json")
+    history = _json.load(open(hist_path)) if _os.path.exists(hist_path) else []
+
+    rows = []
+    seen_users = set()
+
+    for u in users.values():
+        seen_users.add(u.username)
+        sub = subscriptions.get(u.username)
+        base = {
+            "id":         str(getattr(u, "id", u.username)),
+            "username":   u.username,
+            "email":      str(getattr(u, "email", "") or ""),
+            "extension":  str(u.extension) if getattr(u, "extension", None) else None,
+            "role":       str(getattr(u, "role", "")),
+            "app_id":     getattr(u, "app_id", None) or "default",
+            "created_at": safe_dt(getattr(u, "created_at", None)),
+        }
+        if sub:
+            rows.append({
+                **base,
+                "did_number":     getattr(sub, "did_number", None),
+                "cancelled_at":   safe_dt(getattr(sub, "cancelled_at", None)),
+                "has_subscription": True,
+                "subscription": {
+                    "plan_name":     getattr(sub, "plan_name", ""),
+                    "price":         getattr(sub, "price", 0),
+                    "minutes_total": getattr(sub, "minutes_total", 0),
+                    "minutes_used":  round(getattr(sub, "minutes_used", 0) or 0, 2),
+                    "is_active":     getattr(sub, "is_active", False),
+                    "purchased_at":  safe_dt(getattr(sub, "purchased_at", None)),
+                    "renewals":      getattr(sub, "renewals", 0) or 0,
+                },
+            })
+        else:
+            rows.append({**base, "did_number": None, "cancelled_at": None,
+                         "has_subscription": False, "subscription": None})
+
+    # Add history rows for cancelled subs
+    for h in history:
+        u_name = h.get("username")
+        u = users.get(u_name)
+        if not u:
+            continue
+        rows.append({
+            "id":         str(getattr(u, "id", u_name)),
+            "username":   u_name,
+            "email":      str(getattr(u, "email", "") or ""),
+            "extension":  str(u.extension) if getattr(u, "extension", None) else None,
+            "role":       str(getattr(u, "role", "")),
+            "app_id":     h.get("app_id") or getattr(u, "app_id", None) or "default",
+            "created_at": safe_dt(getattr(u, "created_at", None)),
+            "did_number": h.get("did_number"),
+            "cancelled_at": h.get("cancelled_at"),
+            "has_subscription": True,
+            "subscription": {
+                "plan_name":     h.get("plan_name", ""),
+                "price":         h.get("price", 0),
+                "minutes_total": h.get("minutes_total", 0),
+                "minutes_used":  h.get("minutes_used", 0),
+                "is_active":     False,
+                "purchased_at":  h.get("purchased_at"),
+                "renewals":      0,
+            },
+        })
+
+    rows.sort(key=lambda x: (x.get("subscription") or {}).get("purchased_at") or "", reverse=True)
+    return rows
+
+
+# ── Admin: list distinct app_ids ──────────────────────────────────────────────
+
+@app.get("/admin/apps")
+async def list_apps(payload: dict = Depends(require_admin)):
+    """Return all unique app_ids with per-app user and revenue counts."""
+    app_map: dict = {}
+    for u in users.values():
+        aid = getattr(u, "app_id", None) or "default"
+        if aid not in app_map:
+            app_map[aid] = {"app_id": aid, "users": 0, "active_subs": 0, "revenue": 0.0}
+        app_map[aid]["users"] += 1
+        sub = subscriptions.get(u.username)
+        if sub and getattr(sub, "is_active", False):
+            app_map[aid]["active_subs"] += 1
+            app_map[aid]["revenue"] += getattr(sub, "price", 0)
+    return list(app_map.values())

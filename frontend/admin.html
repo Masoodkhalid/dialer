@@ -5,75 +5,546 @@
   <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/>
   <title>Admin — AI Predictive Dialer</title>
   <link rel="stylesheet" href="/static/style.css"/>
+  <style>
+    /* ── Professional Admin Overrides ─────────────────────────────────────── */
+    .adm-header {
+      background: linear-gradient(135deg, #0d1117 0%, #161b2e 60%, #1a1040 100%);
+      border-bottom: 1px solid var(--border);
+      height: 60px;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 200;
+      gap: 16px;
+    }
+    .adm-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+    }
+    .adm-brand-icon {
+      width: 34px;
+      height: 34px;
+      background: linear-gradient(135deg, var(--purple), #4f46e5);
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 14px rgba(124,58,237,.4);
+      flex-shrink: 0;
+    }
+    .adm-brand-text { display: flex; flex-direction: column; }
+    .adm-brand-name { font-size: 15px; font-weight: 800; color: var(--text); letter-spacing: -.02em; }
+    .adm-brand-sub  { font-size: 10px; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+
+    .adm-header-right { display: flex; align-items: center; gap: 10px; }
+
+    .app-filter {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 5px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      outline: none;
+    }
+    .app-filter:focus { border-color: var(--purple); }
+
+    .adm-live-badge {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: var(--green-l);
+      background: rgba(16,185,129,.1);
+      border: 1px solid rgba(16,185,129,.25);
+      border-radius: 6px;
+      padding: 4px 9px;
+      font-weight: 600;
+    }
+    .adm-live-dot {
+      width: 6px; height: 6px;
+      background: var(--green);
+      border-radius: 50%;
+      animation: blink 1.4s infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    .adm-username { font-size: 12px; color: var(--text2); font-weight: 500; }
+    .btn-logout {
+      background: rgba(239,68,68,.12);
+      border: 1px solid rgba(239,68,68,.25);
+      color: #fca5a5;
+      border-radius: 7px;
+      padding: 5px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: var(--t);
+    }
+    .btn-logout:hover { background: rgba(239,68,68,.22); }
+
+    @media (max-width:540px) { .adm-brand-text,.adm-username,.adm-live-badge{display:none} }
+
+    /* ── Sidebar ──────────────────────────────────────────────────────────── */
+    .adm-layout { display: flex; height: calc(100vh - 60px); overflow: hidden; }
+
+    .adm-sidebar {
+      width: 220px;
+      flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 12px 10px;
+      overflow-y: auto;
+      z-index: 160;
+      transition: transform .18s ease;
+    }
+    @media (max-width:768px) {
+      .adm-sidebar {
+        position: fixed;
+        top: 60px; left: 0; bottom: 0;
+        transform: translateX(-100%);
+        box-shadow: none;
+      }
+      .adm-sidebar.open { transform: translateX(0); box-shadow: var(--shadow-lg); }
+    }
+
+    .adm-nav-group {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 14px 8px 6px;
+    }
+
+    .adm-nav-item {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      width: 100%;
+      padding: 9px 10px;
+      border: none;
+      background: transparent;
+      color: var(--text2);
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      text-align: left;
+      transition: var(--t);
+      position: relative;
+    }
+    .adm-nav-item:hover { background: var(--surface2); color: var(--text); }
+    .adm-nav-item.active {
+      background: rgba(124,58,237,.15);
+      color: var(--purple-l);
+      font-weight: 600;
+    }
+    .adm-nav-item.active::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 20%; bottom: 20%;
+      width: 3px;
+      background: var(--purple);
+      border-radius: 0 3px 3px 0;
+    }
+    .adm-nav-divider { height: 1px; background: var(--border); margin: 8px 0; }
+    .nav-badge {
+      margin-left: auto;
+      background: var(--purple-d);
+      color: var(--purple-l);
+      border-radius: 999px;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 6px;
+    }
+
+    /* ── Main Content ─────────────────────────────────────────────────────── */
+    .adm-main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    @media (max-width:600px) { .adm-main { padding: 12px; } }
+
+    .adm-section { display: none; }
+    .adm-section.active { display: contents; }
+
+    /* Page header */
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+    .page-title {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -.03em;
+    }
+    .page-subtitle {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    .page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    /* ── Cards ────────────────────────────────────────────────────────────── */
+    .adm-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px;
+    }
+    .adm-card-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 14px;
+    }
+    .adm-card-title svg { color: var(--purple); flex-shrink: 0; }
+    .adm-two-col { display: flex; gap: 16px; flex-wrap: wrap; }
+    .adm-two-col > * { flex: 1; min-width: 260px; }
+
+    /* ── KPI Cards ────────────────────────────────────────────────────────── */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 10px;
+    }
+    .kpi-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      transition: var(--t);
+    }
+    .kpi-card:hover { border-color: var(--border2); transform: translateY(-1px); }
+    .kpi-icon { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+    .kpi-val {
+      font-size: 26px;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .kpi-lbl {
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .kpi-change {
+      font-size: 10px;
+      font-weight: 600;
+      margin-top: 2px;
+    }
+    .kpi-card.kpi-purple { border-top: 2px solid var(--purple); }
+    .kpi-card.kpi-green  { border-top: 2px solid var(--green); }
+    .kpi-card.kpi-red    { border-top: 2px solid var(--red); }
+    .kpi-card.kpi-amber  { border-top: 2px solid var(--amber); }
+    .kpi-card.kpi-blue   { border-top: 2px solid var(--blue); }
+    .kpi-card.kpi-purple .kpi-val { color: var(--purple-l); }
+    .kpi-card.kpi-green  .kpi-val { color: var(--green-l); }
+    .kpi-card.kpi-red    .kpi-val { color: var(--red-l); }
+    .kpi-card.kpi-amber  .kpi-val { color: var(--amber-l); }
+    .kpi-card.kpi-blue   .kpi-val { color: #93c5fd; }
+
+    /* ── Tables ───────────────────────────────────────────────────────────── */
+    .table-wrap {
+      overflow: auto;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    th {
+      background: var(--surface2);
+      padding: 10px 12px;
+      text-align: left;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted);
+      white-space: nowrap;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+    }
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(35,40,64,.6);
+      vertical-align: middle;
+      color: var(--text);
+      white-space: nowrap;
+    }
+    tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: rgba(124,58,237,.04); }
+
+    /* ── Status Badges ────────────────────────────────────────────────────── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 999px;
+      white-space: nowrap;
+      letter-spacing: .03em;
+    }
+    .badge::before { content:''; width:5px; height:5px; border-radius:50%; flex-shrink:0; }
+    .badge-active   { background:rgba(16,185,129,.12); color:#6ee7b7; border:1px solid rgba(16,185,129,.25); }
+    .badge-active::before   { background:var(--green); }
+    .badge-cancelled{ background:rgba(239,68,68,.12);  color:#fca5a5; border:1px solid rgba(239,68,68,.25); }
+    .badge-cancelled::before{ background:var(--red); }
+    .badge-none     { background:rgba(71,85,105,.15);  color:var(--muted); border:1px solid var(--border); }
+    .badge-none::before     { background:var(--muted); }
+    .badge-admin    { background:rgba(124,58,237,.15); color:var(--purple-l); border:1px solid rgba(124,58,237,.25); }
+    .badge-admin::before    { background:var(--purple); }
+    .badge-answered { background:rgba(16,185,129,.12); color:#6ee7b7; border:1px solid rgba(16,185,129,.2); }
+    .badge-answered::before { background:var(--green); }
+    .badge-failed   { background:rgba(239,68,68,.12);  color:#fca5a5; border:1px solid rgba(239,68,68,.2); }
+    .badge-failed::before   { background:var(--red); }
+    .badge-dropped  { background:rgba(245,158,11,.12); color:#fcd34d; border:1px solid rgba(245,158,11,.2); }
+    .badge-dropped::before  { background:var(--amber); }
+    .badge-completed{ background:rgba(59,130,246,.12); color:#93c5fd; border:1px solid rgba(59,130,246,.2); }
+    .badge-completed::before{ background:var(--blue); }
+    .badge-app {
+      background: rgba(124,58,237,.1);
+      color: var(--purple-l);
+      border: 1px solid rgba(124,58,237,.2);
+      border-radius: 5px;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+    }
+
+    /* ── Bar List ─────────────────────────────────────────────────────────── */
+    .bar-list { display: flex; flex-direction: column; gap: 7px; }
+    .bar-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+    }
+    .bar-label { width: 140px; flex-shrink: 0; color: var(--text2); overflow: hidden; text-overflow: ellipsis; }
+    .bar-track {
+      flex: 1;
+      height: 6px;
+      background: var(--surface2);
+      border-radius: 99px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 99px;
+      background: linear-gradient(90deg, var(--purple), #818cf8);
+      transition: width .5s ease;
+    }
+    .bar-count { color: var(--muted); font-size: 11px; width: 30px; text-align: right; flex-shrink: 0; }
+
+    /* ── Filters ──────────────────────────────────────────────────────────── */
+    .filter-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .input {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 7px 10px;
+      font-size: 12px;
+      outline: none;
+      transition: border-color .15s;
+    }
+    .input:focus { border-color: var(--purple); }
+    select.input { cursor: pointer; }
+
+    /* ── Form ─────────────────────────────────────────────────────────────── */
+    .form-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+    .form-group { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 140px; }
+    .form-group label { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+
+    /* ── Buttons ──────────────────────────────────────────────────────────── */
+    .btn { border:none; border-radius:8px; padding:8px 14px; font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap; transition:var(--t); display:inline-flex; align-items:center; gap:5px; }
+    .btn:hover  { filter: brightness(1.12); }
+    .btn:active { transform: scale(.97); }
+    .btn-primary  { background: var(--purple); color: #fff; box-shadow: 0 2px 12px rgba(124,58,237,.3); }
+    .btn-ghost    { background: var(--surface2); color: var(--text2); border: 1px solid var(--border); }
+    .btn-danger   { background: rgba(239,68,68,.12); color: #fca5a5; border: 1px solid rgba(239,68,68,.25); }
+    .btn-success  { background: rgba(16,185,129,.12); color: #6ee7b7; border: 1px solid rgba(16,185,129,.25); }
+    .btn-sm       { padding: 5px 10px; font-size: 11px; border-radius: 6px; }
+    .btn-xs       { padding: 3px 8px; font-size: 10px; border-radius: 5px; }
+
+    /* ── Alert info box ───────────────────────────────────────────────────── */
+    .info-box {
+      background: rgba(124,58,237,.08);
+      border: 1px solid rgba(124,58,237,.2);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 12px;
+      color: var(--purple-l);
+      margin-bottom: 14px;
+    }
+
+    /* ── Hamburger ────────────────────────────────────────────────────────── */
+    .hamburger { display:none; flex-direction:column; gap:4px; cursor:pointer; padding:6px; border-radius:7px; border:none; background:none; flex-shrink:0; }
+    .hamburger span { display:block; width:20px; height:2px; background:var(--text2); border-radius:2px; }
+    @media (max-width:768px) { .hamburger { display: flex; } }
+
+    /* ── Overlay ──────────────────────────────────────────────────────────── */
+    .overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:150; backdrop-filter:blur(2px); }
+    .overlay.show { display: block; }
+
+    /* ── Apps section ─────────────────────────────────────────────────────── */
+    .app-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: var(--t);
+    }
+    .app-card:hover { border-color: var(--purple); transform: translateY(-2px); }
+    .app-card-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--purple-l);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .app-stat-row { display: flex; gap: 16px; }
+    .app-stat { display: flex; flex-direction: column; }
+    .app-stat-val { font-size: 20px; font-weight: 800; color: var(--text); }
+    .app-stat-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    .apps-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+  </style>
 </head>
 <body>
 
-<!-- ── Top Nav ── -->
-<nav>
-  <div style="display:flex;align-items:center;gap:10px">
-    <button class="hamburger" id="hamburger" onclick="toggleAdmSidebar()" aria-label="Menu">
+<!-- ── Top Header ── -->
+<header class="adm-header">
+  <div style="display:flex;align-items:center;gap:12px">
+    <button class="hamburger" id="hamburger" onclick="toggleSidebar()" aria-label="Menu">
       <span></span><span></span><span></span>
     </button>
-    <a class="nav-brand" href="/admin">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.14 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.05 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 17z"/>
-      </svg>
-      Super Admin
+    <a class="adm-brand" href="/admin">
+      <div class="adm-brand-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5">
+          <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.14 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.05 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6z"/>
+        </svg>
+      </div>
+      <div class="adm-brand-text">
+        <span class="adm-brand-name">AI Dialer</span>
+        <span class="adm-brand-sub">Super Admin</span>
+      </div>
     </a>
   </div>
-  <div class="nav-right">
-    <span id="adm-user" class="nav-username"></span>
-    <a href="/" class="btn btn-ghost btn-sm">← Dialer</a>
-    <button class="btn btn-red btn-sm" onclick="logout()">Logout</button>
-    <span id="clock" class="nav-clock"></span>
+
+  <div class="adm-header-right">
+    <div class="adm-live-badge">
+      <span class="adm-live-dot"></span>
+      Live
+    </div>
+    <select class="app-filter" id="global-app-filter" onchange="onAppFilterChange()" title="Filter by App">
+      <option value="">All Apps</option>
+    </select>
+    <span class="adm-username" id="adm-user"></span>
+    <span id="header-clock" style="font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap"></span>
+    <button class="btn-logout" onclick="logout()">Logout</button>
   </div>
-</nav>
+</header>
 
-<!-- Overlay -->
-<div class="overlay" id="overlay" onclick="closeAdmSidebar()"></div>
+<div class="overlay" id="overlay" onclick="closeSidebar()"></div>
 
-<div class="adm-layout" style="height:calc(100vh - 56px);overflow:hidden">
+<div class="adm-layout">
 
-  <!-- ── Admin Sidebar ── -->
+  <!-- ── Sidebar ── -->
   <aside class="adm-sidebar" id="adm-sidebar">
-    <div class="adm-nav-label">Navigation</div>
-    <button class="adm-nav-item active" onclick="showSection('reports',this)">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>
-        <line x1="6" y1="20" x2="6" y2="14"/>
+    <div class="adm-nav-group">Analytics</div>
+    <button class="adm-nav-item active" id="nav-reports" onclick="showSection('reports',this)">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
       </svg>
       Reports
     </button>
-    <button class="adm-nav-item" onclick="showSection('users',this)">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <button class="adm-nav-item" id="nav-inbound" onclick="showSection('inbound',this)">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M16 2v6h6"/><path d="M21 8 15 2"/>
+        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.14 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.05 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6z"/>
+      </svg>
+      Inbound Calls
+    </button>
+
+    <div class="adm-nav-group">Management</div>
+    <button class="adm-nav-item" id="nav-users" onclick="showSection('users',this)">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
         <circle cx="9" cy="7" r="4"/>
         <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
       </svg>
-      Users & Agents
+      Users &amp; Agents
     </button>
-    <button class="adm-nav-item" onclick="showSection('dids',this)">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.14 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.05 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 17z"/>
+    <button class="adm-nav-item" id="nav-dids" onclick="showSection('dids',this)">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="5" y="2" width="14" height="20" rx="2"/>
+        <line x1="12" y1="18" x2="12.01" y2="18"/>
       </svg>
       DID Numbers
     </button>
-    <button class="adm-nav-item" onclick="showSection('subscribers',this)">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+    <button class="adm-nav-item" id="nav-subscribers" onclick="showSection('subscribers',this)">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/>
+        <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
       </svg>
       Subscribers
     </button>
-    <button class="adm-nav-item" onclick="showSection('inbound',this)">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M16 2v6h6"/><path d="M21 8 15 2"/>
-        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.14 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.05 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 17z"/>
+    <button class="adm-nav-item" id="nav-apps" onclick="showSection('apps',this)">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="2" y="3" width="9" height="9" rx="1"/>
+        <rect x="13" y="3" width="9" height="9" rx="1"/>
+        <rect x="2" y="13" width="9" height="9" rx="1"/>
+        <rect x="13" y="13" width="9" height="9" rx="1"/>
       </svg>
-      Inbound Calls
+      Apps Overview
     </button>
-    <div style="flex:1"></div>
+
+    <div class="adm-nav-divider"></div>
     <button class="adm-nav-item" onclick="window.open('/','_blank')">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
         <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
       </svg>
@@ -81,195 +552,135 @@
     </button>
   </aside>
 
-  <!-- ── Main Content ── -->
+  <!-- ── Main ── -->
   <main class="adm-main">
 
     <!-- ══ REPORTS ══ -->
     <section id="sec-reports" class="adm-section active">
-
-      <!-- KPI Cards -->
-      <div class="adm-card">
-        <div class="adm-card-title">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
-          </svg>
-          Call Summary
-          <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="loadReports()">↻ Refresh</button>
+      <div class="page-header">
+        <div>
+          <div class="page-title">Reports</div>
+          <div class="page-subtitle">Call analytics &amp; performance overview</div>
         </div>
-        <div class="kpi-grid">
-          <div class="kpi-card">
-            <div class="kpi-val" id="s-total">—</div>
-            <div class="kpi-lbl">Total Calls</div>
-          </div>
-          <div class="kpi-card kpi-green">
-            <div class="kpi-val" id="s-answered">—</div>
-            <div class="kpi-lbl">Answered</div>
-          </div>
-          <div class="kpi-card kpi-blue">
-            <div class="kpi-val" id="s-completed">—</div>
-            <div class="kpi-lbl">Completed</div>
-          </div>
-          <div class="kpi-card kpi-amber">
-            <div class="kpi-val" id="s-dropped">—</div>
-            <div class="kpi-lbl">Dropped</div>
-          </div>
-          <div class="kpi-card kpi-red">
-            <div class="kpi-val" id="s-failed">—</div>
-            <div class="kpi-lbl">Failed</div>
-          </div>
-          <div class="kpi-card kpi-green">
-            <div class="kpi-val" id="s-ans-rate">—</div>
-            <div class="kpi-lbl">Answer Rate</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-val" id="s-avg-dur">—</div>
-            <div class="kpi-lbl">Avg Duration</div>
-          </div>
-          <div class="kpi-card kpi-purple">
-            <div class="kpi-val" id="s-conn-rate">—</div>
-            <div class="kpi-lbl">Connect Rate</div>
-          </div>
+        <div class="page-actions">
+          <button class="btn btn-ghost btn-sm" onclick="loadReports()">↻ Refresh</button>
+          <button class="btn btn-ghost btn-sm" onclick="exportCSV()">⬇ Export CSV</button>
         </div>
       </div>
 
-      <!-- SIP + Causes (2-col) -->
-      <div class="adm-two-col">
+      <div class="adm-card">
+        <div class="adm-card-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          Call Summary
+        </div>
+        <div class="kpi-grid">
+          <div class="kpi-card"><div class="kpi-val" id="s-total">—</div><div class="kpi-lbl">Total Calls</div></div>
+          <div class="kpi-card kpi-green"><div class="kpi-val" id="s-answered">—</div><div class="kpi-lbl">Answered</div></div>
+          <div class="kpi-card kpi-blue"><div class="kpi-val" id="s-completed">—</div><div class="kpi-lbl">Completed</div></div>
+          <div class="kpi-card kpi-amber"><div class="kpi-val" id="s-dropped">—</div><div class="kpi-lbl">Dropped</div></div>
+          <div class="kpi-card kpi-red"><div class="kpi-val" id="s-failed">—</div><div class="kpi-lbl">Failed</div></div>
+          <div class="kpi-card kpi-green"><div class="kpi-val" id="s-ans-rate">—</div><div class="kpi-lbl">Answer Rate</div></div>
+          <div class="kpi-card"><div class="kpi-val" id="s-avg-dur">—</div><div class="kpi-lbl">Avg Duration</div></div>
+          <div class="kpi-card kpi-purple"><div class="kpi-val" id="s-conn-rate">—</div><div class="kpi-lbl">Connect Rate</div></div>
+        </div>
+      </div>
 
-        <!-- SIP Codes -->
-        <div class="adm-card" style="flex:1;min-width:0">
+      <div class="adm-two-col">
+        <div class="adm-card">
           <div class="adm-card-title">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-            </svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
             SIP Response Codes
           </div>
           <div class="bar-list" id="sip-bars"><span style="color:var(--muted);font-size:12px">Loading…</span></div>
         </div>
-
-        <!-- Hangup Causes -->
-        <div class="adm-card" style="flex:1;min-width:0">
+        <div class="adm-card">
           <div class="adm-card-title">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-            </svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
             Hangup Causes
           </div>
           <div class="bar-list" id="cause-bars"><span style="color:var(--muted);font-size:12px">Loading…</span></div>
         </div>
-
       </div>
 
-      <!-- Agent Performance + Dispositions (2-col) -->
       <div class="adm-two-col">
-
-        <!-- Agent Performance -->
-        <div class="adm-card" style="flex:1;min-width:0">
+        <div class="adm-card">
           <div class="adm-card-title">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-            </svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
             Agent Performance
           </div>
-          <div style="overflow:auto;border-radius:var(--radius);border:1px solid var(--border)">
+          <div class="table-wrap">
             <table style="font-size:12px">
-              <thead><tr><th>Agent</th><th style="text-align:center">Calls</th><th style="text-align:center">Connected</th><th style="text-align:center">Avg Duration</th></tr></thead>
+              <thead><tr><th>Agent</th><th>Calls</th><th>Connected</th><th>Avg Duration</th></tr></thead>
               <tbody id="agent-perf-tbody"><tr><td colspan="4" style="text-align:center;color:var(--muted)">Loading…</td></tr></tbody>
             </table>
           </div>
         </div>
-
-        <!-- Dispositions -->
-        <div class="adm-card" style="flex:1;min-width:0">
+        <div class="adm-card">
           <div class="adm-card-title">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-            </svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
             Call Dispositions
           </div>
           <div class="bar-list" id="disp-bars"><span style="color:var(--muted);font-size:12px">Loading…</span></div>
         </div>
-
       </div>
 
-      <!-- Full Call Log -->
       <div class="adm-card">
         <div class="adm-card-title">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.14 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.05 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 17z"/>
-          </svg>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.14 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.05 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6z"/></svg>
           Full Call Log
           <span id="log-count" style="margin-left:6px;font-size:10px;color:var(--muted);font-weight:400"></span>
-          <button class="btn btn-reset btn-sm" style="margin-left:auto" onclick="exportCSV()">⬇ Export CSV</button>
+          <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="exportCSV()">⬇ CSV</button>
         </div>
-
-        <!-- Filters row 1 -->
-        <div class="filter-row" style="flex-wrap:wrap;gap:6px;margin-bottom:6px">
+        <div class="filter-row" style="margin-bottom:8px">
           <input class="input" id="filter-search" placeholder="🔍 Phone or name…" oninput="filterTable()" style="max-width:180px"/>
-          <select class="input" id="filter-agent" onchange="filterTable()" style="max-width:160px">
-            <option value="">All agents</option>
-          </select>
-          <select class="input" id="filter-campaign" onchange="filterTable()" style="max-width:160px">
-            <option value="">All campaigns</option>
-          </select>
-          <select class="input" id="filter-status" onchange="filterTable()" style="max-width:140px">
+          <select class="input" id="filter-agent" onchange="filterTable()" style="max-width:150px"><option value="">All agents</option></select>
+          <select class="input" id="filter-campaign" onchange="filterTable()" style="max-width:150px"><option value="">All campaigns</option></select>
+          <select class="input" id="filter-status" onchange="filterTable()" style="max-width:130px">
             <option value="">All statuses</option>
             <option value="completed">Completed</option>
             <option value="dropped">Dropped</option>
             <option value="failed">Failed</option>
             <option value="answered">Answered</option>
           </select>
-        </div>
-        <!-- Filters row 2 -->
-        <div class="filter-row" style="flex-wrap:wrap;gap:6px;margin-bottom:10px">
-          <select class="input" id="filter-sip" onchange="filterTable()" style="max-width:200px">
-            <option value="">All SIP codes</option>
-          </select>
-          <select class="input" id="filter-cause" onchange="filterTable()" style="max-width:200px">
-            <option value="">All hangup causes</option>
-          </select>
-          <select class="input" id="filter-disp" onchange="filterTable()" style="max-width:160px">
-            <option value="">All dispositions</option>
-          </select>
-          <input class="input" id="filter-date-from" type="date" onchange="filterTable()" style="max-width:150px" title="From date"/>
-          <input class="input" id="filter-date-to"   type="date" onchange="filterTable()" style="max-width:150px" title="To date"/>
+          <select class="input" id="filter-sip" onchange="filterTable()" style="max-width:180px"><option value="">All SIP codes</option></select>
+          <select class="input" id="filter-cause" onchange="filterTable()" style="max-width:180px"><option value="">All hangup causes</option></select>
+          <input class="input" id="filter-date-from" type="date" onchange="filterTable()" style="max-width:140px"/>
+          <input class="input" id="filter-date-to" type="date" onchange="filterTable()" style="max-width:140px"/>
           <button class="btn btn-ghost btn-sm" onclick="clearFilters()">✕ Clear</button>
         </div>
-
-        <div style="overflow:auto;max-height:500px;border-radius:var(--radius);border:1px solid var(--border)">
+        <div class="table-wrap" style="max-height:480px">
           <table id="report-table" style="font-size:11px">
             <thead>
               <tr>
                 <th>Date/Time</th><th>Phone</th><th>Name</th><th>Campaign</th>
                 <th>Agent</th><th>DID</th><th>Duration</th><th>Status</th>
-                <th>SIP Code</th><th>Hangup Cause</th><th>AMD</th>
-                <th>Disposition</th><th>Sentiment</th><th>Recording</th>
+                <th>SIP</th><th>Hangup</th><th>AMD</th><th>Disposition</th><th>Sentiment</th><th>Recording</th>
               </tr>
             </thead>
             <tbody id="report-tbody"></tbody>
           </table>
         </div>
       </div>
-
     </section>
 
     <!-- ══ USERS ══ -->
     <section id="sec-users" class="adm-section">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Users &amp; Agents</div>
+          <div class="page-subtitle">Manage accounts and dialer agents</div>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-ghost btn-sm" onclick="loadUsers()">↻ Refresh</button>
+        </div>
+      </div>
 
-      <!-- Create User -->
       <div class="adm-card">
         <div class="adm-card-title">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-            <circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/>
-            <line x1="23" y1="11" x2="17" y2="11"/>
-          </svg>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
           Create User / Agent
         </div>
-        <div style="background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:16px;font-size:11px;color:var(--purple-l)">
-          💡 Adding an extension automatically registers the user as a <strong>dialer agent</strong>. They will appear in the dashboard immediately.
-        </div>
+        <div class="info-box">💡 Adding an extension automatically registers the user as a <strong>dialer agent</strong>.</div>
         <div class="form-row">
           <div class="form-group">
             <label>Username</label>
@@ -279,44 +690,40 @@
             <label>Password</label>
             <input class="input" id="u-password" type="password" placeholder="Default: 1234"/>
           </div>
-          <div class="form-group" style="max-width:120px">
+          <div class="form-group" style="max-width:110px">
             <label>Extension</label>
             <input class="input" id="u-ext" placeholder="1001"/>
           </div>
-          <div class="form-group" style="max-width:160px">
+          <div class="form-group" style="max-width:150px">
             <label>Role</label>
             <select class="input" id="u-role">
-              <option value="user">User (Dialer Agent)</option>
+              <option value="user">User (Agent)</option>
               <option value="superadmin">Super Admin</option>
             </select>
           </div>
           <div style="display:flex;align-items:flex-end">
-            <button class="btn btn-purple" onclick="createUser()">
+            <button class="btn btn-primary" onclick="createUser()">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               Add User
             </button>
           </div>
         </div>
-        <div id="u-msg" style="font-size:11px;margin-top:10px;min-height:16px"></div>
+        <div id="u-msg" style="font-size:12px;margin-top:10px;min-height:16px"></div>
       </div>
 
-      <!-- User List -->
       <div class="adm-card">
         <div class="adm-card-title">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-            <circle cx="9" cy="7" r="4"/>
-            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-          </svg>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           All Users
+          <span id="users-count" style="margin-left:6px;font-size:10px;color:var(--muted);font-weight:400"></span>
+          <div class="filter-row" style="margin-left:auto">
+            <input class="input" id="user-search" placeholder="🔍 Search…" oninput="filterUsers()" style="max-width:180px"/>
+          </div>
         </div>
-        <div style="overflow:auto;border-radius:var(--radius);border:1px solid var(--border)">
+        <div class="table-wrap">
           <table>
             <thead>
-              <tr>
-                <th>Username</th><th>Role</th><th>Agent / Extension</th>
-                <th>Created</th><th>Actions</th>
-              </tr>
+              <tr><th>Username</th><th>App</th><th>Email</th><th>Role</th><th>Extension</th><th>Created</th><th>Actions</th></tr>
             </thead>
             <tbody id="user-tbody"></tbody>
           </table>
@@ -326,13 +733,19 @@
 
     <!-- ══ DIDs ══ -->
     <section id="sec-dids" class="adm-section">
+      <div class="page-header">
+        <div>
+          <div class="page-title">DID Numbers</div>
+          <div class="page-subtitle">Manage phone numbers available in the store</div>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-ghost btn-sm" onclick="loadDids()">↻ Refresh</button>
+        </div>
+      </div>
 
-      <!-- Add DID -->
       <div class="adm-card">
         <div class="adm-card-title">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           Add DID Number
         </div>
         <div class="form-row">
@@ -345,27 +758,25 @@
             <input class="input" id="d-label" placeholder="Main Office"/>
           </div>
           <div style="display:flex;align-items:flex-end">
-            <button class="btn btn-purple" onclick="addDid()">
+            <button class="btn btn-primary" onclick="addDid()">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               Add DID
             </button>
           </div>
         </div>
-        <div id="d-msg" style="font-size:11px;margin-top:10px;min-height:16px"></div>
+        <div id="d-msg" style="font-size:12px;margin-top:10px;min-height:16px"></div>
       </div>
 
-      <!-- DID List -->
       <div class="adm-card">
         <div class="adm-card-title">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.14 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.05 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 17z"/>
-          </svg>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
           DID Numbers
+          <span id="did-count" style="margin-left:6px;font-size:10px;color:var(--muted);font-weight:400"></span>
         </div>
-        <div style="overflow:auto;border-radius:var(--radius);border:1px solid var(--border)">
+        <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>Number</th><th>Label</th><th>Status</th><th>Store Listing</th><th>Actions</th></tr>
+              <tr><th>Number</th><th>Label</th><th>Owner</th><th>Status</th><th>Store Listing</th><th>Actions</th></tr>
             </thead>
             <tbody id="did-tbody"></tbody>
           </table>
@@ -375,67 +786,106 @@
 
     <!-- ══ SUBSCRIBERS ══ -->
     <section id="sec-subscribers" class="adm-section">
-      <div class="adm-card">
-        <div class="adm-card-title">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
-          </svg>
-          Subscriber Analytics
-          <span id="sub-count" style="margin-left:6px;font-size:10px;color:var(--muted);font-weight:400"></span>
-          <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="loadSubscribers()">↻ Refresh</button>
+      <div class="page-header">
+        <div>
+          <div class="page-title">Subscribers</div>
+          <div class="page-subtitle">Subscription plans, revenue &amp; user history</div>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-ghost btn-sm" onclick="loadSubscribers()">↻ Refresh</button>
           <button class="btn btn-ghost btn-sm" onclick="exportSubscribersCSV()">⬇ CSV</button>
         </div>
+      </div>
 
-        <!-- KPI row -->
-        <div class="kpi-grid" style="margin-bottom:16px">
-          <div class="kpi-card kpi-purple">
-            <div class="kpi-val" id="sub-total">—</div>
-            <div class="kpi-lbl">Total Users</div>
-          </div>
-          <div class="kpi-card kpi-green">
-            <div class="kpi-val" id="sub-active">—</div>
-            <div class="kpi-lbl">Active Plans</div>
-          </div>
-          <div class="kpi-card kpi-red">
-            <div class="kpi-val" id="sub-cancelled">—</div>
-            <div class="kpi-lbl">No Plan</div>
-          </div>
-          <div class="kpi-card kpi-blue">
-            <div class="kpi-val" id="sub-dids">—</div>
-            <div class="kpi-lbl">DIDs Assigned</div>
+      <div class="adm-card">
+        <div class="adm-card-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          Revenue &amp; Subscription KPIs
+        </div>
+        <div class="kpi-grid">
+          <div class="kpi-card kpi-purple"><div class="kpi-val" id="sub-total">—</div><div class="kpi-lbl">Total Users</div></div>
+          <div class="kpi-card kpi-green"><div class="kpi-val" id="sub-active">—</div><div class="kpi-lbl">Active Plans</div></div>
+          <div class="kpi-card kpi-red"><div class="kpi-val" id="sub-cancelled">—</div><div class="kpi-lbl">No Plan</div></div>
+          <div class="kpi-card kpi-blue"><div class="kpi-val" id="sub-dids">—</div><div class="kpi-lbl">DIDs Assigned</div></div>
+          <div class="kpi-card kpi-green"><div class="kpi-val" id="sub-revenue">—</div><div class="kpi-lbl">Total Revenue</div></div>
+          <div class="kpi-card kpi-amber"><div class="kpi-val" id="sub-mrr">—</div><div class="kpi-lbl">Active MRR</div></div>
+        </div>
+      </div>
+
+      <div class="adm-card">
+        <div class="adm-card-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+          Subscriber List
+          <span id="sub-count" style="margin-left:6px;font-size:10px;color:var(--muted);font-weight:400"></span>
+          <div class="filter-row" style="margin-left:auto">
+            <input class="input" id="sub-search" placeholder="🔍 Search…" oninput="filterSubscribers()" style="max-width:180px"/>
+            <select class="input" id="sub-filter-status" onchange="filterSubscribers()" style="max-width:140px">
+              <option value="">All status</option>
+              <option value="active">Active plan</option>
+              <option value="cancelled">Cancelled</option>
+              <option value="none">No plan</option>
+            </select>
+            <select class="input" id="sub-filter-app" onchange="filterSubscribers()" style="max-width:140px">
+              <option value="">All apps</option>
+            </select>
           </div>
         </div>
-
-        <!-- Search -->
-        <div class="filter-row" style="margin-bottom:10px">
-          <input class="input" id="sub-search" placeholder="🔍 Search username or email…"
-            oninput="filterSubscribers()" style="max-width:260px"/>
-          <select class="input" id="sub-filter-status" onchange="filterSubscribers()" style="max-width:150px">
-            <option value="">All status</option>
-            <option value="active">Active plan</option>
-            <option value="none">No plan</option>
-          </select>
-        </div>
-
-        <div style="overflow:auto;border-radius:var(--radius);border:1px solid var(--border)">
+        <div class="table-wrap" style="max-height:480px">
           <table id="sub-table" style="font-size:11px">
             <thead>
               <tr>
-                <th>ID</th>
-                <th>Username</th>
-                <th>Email</th>
-                <th>Extension</th>
-                <th>DID Assigned</th>
-                <th>Plan</th>
-                <th>Minutes Left</th>
-                <th>Purchase Date</th>
-                <th>Cancelled Date</th>
-                <th>Status</th>
-                <th>Joined</th>
+                <th>Username</th><th>App</th><th>Email</th><th>Extension</th>
+                <th>DID</th><th>Plan</th><th>Revenue</th><th>Min Left</th>
+                <th>Purchased</th><th>Cancelled</th><th>Status</th><th>Joined</th>
               </tr>
             </thead>
             <tbody id="sub-tbody">
-              <tr><td colspan="11" style="text-align:center;color:var(--muted)">Loading…</td></tr>
+              <tr><td colspan="12" style="text-align:center;color:var(--muted)">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ APPS OVERVIEW ══ -->
+    <section id="sec-apps" class="adm-section">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Apps Overview</div>
+          <div class="page-subtitle">Multi-app tracking — see which mobile app each user belongs to</div>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-ghost btn-sm" onclick="loadApps()">↻ Refresh</button>
+        </div>
+      </div>
+
+      <div class="adm-card">
+        <div class="adm-card-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 1 0-14.14 14.14"/></svg>
+          How to tag your mobile apps
+        </div>
+        <div class="info-box" style="font-size:12px;line-height:1.7">
+          When registering a user from your mobile app, include <code style="background:rgba(124,58,237,.15);padding:1px 5px;border-radius:4px">app_id</code> in the request body:<br/>
+          <code style="background:var(--surface2);display:block;margin-top:8px;padding:8px 12px;border-radius:6px;border:1px solid var(--border);font-size:11px">POST /auth/register<br/>{"username":"...", "password":"...", "app_id":"<strong>your-app-name</strong>"}</code>
+          <br/>Or via header: <code style="background:rgba(124,58,237,.15);padding:1px 5px;border-radius:4px">X-App-ID: your-app-name</code>
+        </div>
+        <div class="apps-grid" id="apps-grid">
+          <div style="color:var(--muted);font-size:12px">Loading…</div>
+        </div>
+      </div>
+
+      <div class="adm-card">
+        <div class="adm-card-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          All Users by App
+        </div>
+        <div class="table-wrap" style="max-height:400px">
+          <table id="apps-user-table" style="font-size:11px">
+            <thead>
+              <tr><th>App ID</th><th>Username</th><th>Email</th><th>Extension</th><th>Joined</th><th>Plan Status</th></tr>
+            </thead>
+            <tbody id="apps-user-tbody">
+              <tr><td colspan="6" style="text-align:center;color:var(--muted)">Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -444,69 +894,52 @@
 
     <!-- ══ INBOUND CALLS ══ -->
     <section id="sec-inbound" class="adm-section">
-      <div class="adm-card">
-        <div class="adm-card-title">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M16 2v6h6"/><path d="M21 8 15 2"/>
-            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.14 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.05 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 17z"/>
-          </svg>
-          Inbound Call Tracking
-          <span id="inb-count" style="margin-left:6px;font-size:10px;color:var(--muted);font-weight:400"></span>
-          <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="loadInbound()">↻ Refresh</button>
+      <div class="page-header">
+        <div>
+          <div class="page-title">Inbound Calls</div>
+          <div class="page-subtitle">Incoming call tracking per subscriber DID</div>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-ghost btn-sm" onclick="loadInbound()">↻ Refresh</button>
           <button class="btn btn-ghost btn-sm" onclick="exportInboundCSV()">⬇ CSV</button>
         </div>
+      </div>
 
-        <!-- KPI row -->
-        <div class="kpi-grid" style="margin-bottom:16px">
-          <div class="kpi-card kpi-blue">
-            <div class="kpi-val" id="inb-total">—</div>
-            <div class="kpi-lbl">Total Inbound</div>
-          </div>
-          <div class="kpi-card kpi-green">
-            <div class="kpi-val" id="inb-answered">—</div>
-            <div class="kpi-lbl">Answered</div>
-          </div>
-          <div class="kpi-card kpi-red">
-            <div class="kpi-val" id="inb-missed">—</div>
-            <div class="kpi-lbl">Missed / Rejected</div>
-          </div>
-          <div class="kpi-card kpi-amber">
-            <div class="kpi-val" id="inb-live">—</div>
-            <div class="kpi-lbl">Live Now</div>
-          </div>
-          <div class="kpi-card kpi-purple">
-            <div class="kpi-val" id="inb-today">—</div>
-            <div class="kpi-lbl">Today</div>
+      <div class="adm-card">
+        <div class="adm-card-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M16 2v6h6"/><path d="M21 8 15 2"/></svg>
+          Inbound KPIs
+        </div>
+        <div class="kpi-grid">
+          <div class="kpi-card kpi-blue"><div class="kpi-val" id="inb-total">—</div><div class="kpi-lbl">Total Inbound</div></div>
+          <div class="kpi-card kpi-green"><div class="kpi-val" id="inb-answered">—</div><div class="kpi-lbl">Answered</div></div>
+          <div class="kpi-card kpi-red"><div class="kpi-val" id="inb-missed">—</div><div class="kpi-lbl">Missed</div></div>
+          <div class="kpi-card kpi-amber"><div class="kpi-val" id="inb-live">—</div><div class="kpi-lbl">Live Now</div></div>
+          <div class="kpi-card kpi-purple"><div class="kpi-val" id="inb-today">—</div><div class="kpi-lbl">Today</div></div>
+        </div>
+      </div>
+
+      <div class="adm-card">
+        <div class="adm-card-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.14 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.05 2h3a2 2 0 0 1 2 1.72z"/></svg>
+          Inbound Call Log
+          <span id="inb-count" style="margin-left:6px;font-size:10px;color:var(--muted);font-weight:400"></span>
+          <div class="filter-row" style="margin-left:auto">
+            <input class="input" id="inb-search" placeholder="🔍 Search caller, DID…" oninput="filterInbound()" style="max-width:200px"/>
+            <select class="input" id="inb-filter-status" onchange="filterInbound()" style="max-width:150px">
+              <option value="">All status</option>
+              <option value="answered">Answered</option>
+              <option value="completed">Completed</option>
+              <option value="missed">Missed</option>
+              <option value="rejected">Rejected</option>
+              <option value="ringing">Ringing</option>
+            </select>
           </div>
         </div>
-
-        <!-- Filters -->
-        <div class="filter-row" style="margin-bottom:10px">
-          <input class="input" id="inb-search" placeholder="🔍 Search caller, DID or user…"
-            oninput="filterInbound()" style="max-width:260px"/>
-          <select class="input" id="inb-filter-status" onchange="filterInbound()" style="max-width:170px">
-            <option value="">All status</option>
-            <option value="answered">Answered</option>
-            <option value="completed">Completed</option>
-            <option value="missed">Missed</option>
-            <option value="rejected">Rejected</option>
-            <option value="ringing">Ringing</option>
-          </select>
-        </div>
-
-        <div style="overflow:auto;border-radius:var(--radius);border:1px solid var(--border)">
+        <div class="table-wrap" style="max-height:440px">
           <table id="inb-table" style="font-size:11px">
             <thead>
-              <tr>
-                <th>Time</th>
-                <th>Caller</th>
-                <th>DID Called</th>
-                <th>Received By</th>
-                <th>Extension</th>
-                <th>Status</th>
-                <th>Talk Time</th>
-                <th>Hangup Cause</th>
-              </tr>
+              <tr><th>Time</th><th>Caller</th><th>DID Called</th><th>Received By</th><th>Extension</th><th>Status</th><th>Talk Time</th><th>Hangup</th></tr>
             </thead>
             <tbody id="inb-tbody">
               <tr><td colspan="8" style="text-align:center;color:var(--muted)">Loading…</td></tr>
