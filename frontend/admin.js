@@ -360,6 +360,13 @@ function renderUsers() {
     tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted)">No users found</td></tr>';
     return;
   }
+  // Build app options from loaded apps + ensure current user's app is included
+  const knownApps = _allApps.length
+    ? _allApps.map(a => a.app_id)
+    : [];
+  // Always include any app_id already on users that might not be in _allApps yet
+  rows.forEach(u => { if (u.app_id && !knownApps.includes(u.app_id)) knownApps.push(u.app_id); });
+
   tbody.innerHTML = rows.map(u => {
     const roleBadge = u.role === 'superadmin'
       ? '<span class="badge badge-admin">Admin</span>'
@@ -367,9 +374,18 @@ function renderUsers() {
     const extCell = u.extension
       ? `<span style="color:var(--purple-l);font-size:11px">Ext ${u.extension}</span>`
       : '<span style="color:var(--muted)">—</span>';
+    const curApp = u.app_id || '';
+    // All options: none + known apps + current value (even if not yet in knownApps) + custom entry
+    const optValues = [...new Set(['', ...knownApps, curApp].filter(Boolean))];
+    const appOpts = [
+      `<option value="">— none —</option>`,
+      ...optValues.map(a => `<option value="${esc(a)}" ${curApp === a ? 'selected' : ''}>${esc(a)}</option>`),
+      `<option value="__custom__">✏ Enter custom…</option>`
+    ].join('');
+    const appDropdown = `<select class="app-select-inline" onchange="changeUserApp('${esc(u.username)}',this.value)">${appOpts}</select>`;
     return `<tr>
       <td><strong>${esc(u.username)}</strong></td>
-      <td>${appBadge(u.app_id)}</td>
+      <td>${appDropdown}</td>
       <td style="color:var(--text2)">${esc(u.email || '—')}</td>
       <td>${roleBadge}</td>
       <td>${extCell}</td>
@@ -386,6 +402,26 @@ function renderUsers() {
 }
 
 function filterUsers() { renderUsers(); }
+
+async function changeUserApp(username, newApp) {
+  if (newApp === '__custom__') {
+    const custom = (prompt(`Assign "${username}" to app ID:\n(e.g. app1, wowosim, callingio)`) || '').trim();
+    if (!custom) { renderUsers(); return; }
+    newApp = custom;
+  }
+  try {
+    await api('PATCH', `/admin/users/${username}/app-id`, { app_id: newApp || null });
+    const u = _allUsers.find(u => u.username === username);
+    if (u) u.app_id = newApp || null;
+    // Refresh apps list so the new app appears in the global filter
+    _allApps = await api('GET', '/admin/apps');
+    populateAppFilter(_allApps);
+    renderUsers();
+  } catch(e) {
+    alert('Failed to update app: ' + (e.message || e));
+    renderUsers();
+  }
+}
 
 async function createUser() {
   const username  = document.getElementById('u-username').value.trim();

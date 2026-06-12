@@ -491,6 +491,18 @@ async def auth_login(body: dict):
     user = users.get(username)
     if not user or not verify_password(password, user.password_hash):
         raise HTTPException(401, "Invalid username or password")
+
+    # Multi-app: block cross-app logins + auto-tag legacy users
+    req_app = (body.get("app_id") or "").strip() or None
+    if req_app:
+        user_app = getattr(user, "app_id", None)
+        if user_app and user_app not in ("default", "") and user_app != req_app:
+            raise HTTPException(403, "This account belongs to a different app")
+        # Auto-assign untagged/default users on first app login
+        if not user_app or user_app == "default":
+            user.app_id = req_app
+            _save()
+
     token = create_token(user.id, user.role, user.username)
     return {"token": token, "role": user.role, "username": user.username}
 
@@ -643,6 +655,19 @@ async def delete_user(username: str, payload: dict = Depends(require_admin)):
         await broadcast("agent_removed", {"agent_id": user.agent_id})
     _save()
     return {"status": "deleted"}
+
+
+@app.patch("/admin/users/{username}/app-id")
+async def update_user_app_id(username: str, body: dict, payload: dict = Depends(require_admin)):
+    """Admin: reassign a user to a different app (or clear it)."""
+    user = users.get(username)
+    if not user:
+        raise HTTPException(404, "User not found")
+    new_app = (body.get("app_id") or "").strip() or None
+    user.app_id = new_app
+    _save()
+    logger.info("ADMIN: reassigned user=%s app_id=%s by=%s", username, new_app, payload.get("username"))
+    return {"status": "ok", "app_id": new_app}
 
 
 # ── User-facing DID list (for mobile DID picker) ───────────────────────────────
