@@ -73,6 +73,8 @@ class ESLClient:
         self._event_handlers: Dict[str, List[Handler]] = defaultdict(list)
         self._listen_task: Optional[asyncio.Task] = None
         self.connected = False
+        self._subscribed_events: List[str] = []   # saved for re-subscribe after reconnect
+        self._reconnect_lock = asyncio.Lock()     # prevent concurrent reconnect attempts
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -106,20 +108,56 @@ class ESLClient:
 
     async def subscribe(self, *events: str) -> None:
         """Subscribe to one or more event names.  Pass no args for ALL."""
+        if events:
+            self._subscribed_events = list(events)  # save for reconnect
         event_str = " ".join(events) if events else "ALL"
         await self._send_raw(f"event plain {event_str}")
         reply = await asyncio.wait_for(self._response_queue.get(), timeout=5.0)
         logger.debug("Subscribe reply: %s", reply.get("Reply-Text"))
 
+    async def ensure_connected(self) -> None:
+        """Reconnect to FreeSWITCH if the ESL connection has dropped."""
+        if self.connected:
+            return
+        async with self._reconnect_lock:
+            if self.connected:   # re-check inside lock
+                return
+            logger.info("ESL disconnected — reconnecting to %s:%s", self.host, self.port)
+            # Cancel old listen task
+            if self._listen_task and not self._listen_task.done():
+                self._listen_task.cancel()
+                try:
+                    await self._listen_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+            # Close old writer
+            if self._writer:
+                try:
+                    self._writer.close()
+                except Exception:
+                    pass
+            # Drain stale replies from previous connection
+            while not self._response_queue.empty():
+                try:
+                    self._response_queue.get_nowait()
+                except Exception:
+                    break
+            await self.connect()
+            if self._subscribed_events:
+                await self.subscribe(*self._subscribed_events)
+            logger.info("ESL reconnected successfully")
+
     async def api(self, command: str) -> str:
         """Send a synchronous `api` command.  Returns the response body."""
         async with self._api_lock:
+            await self.ensure_connected()
             await self._send_raw(f"api {command}")
             msg = await asyncio.wait_for(self._response_queue.get(), timeout=30.0)
             return msg.get("body", "")
 
     async def bgapi(self, command: str) -> str:
         """Send a background `bgapi` command.  Returns the Job-UUID."""
+        await self.ensure_connected()
         job_uuid = str(uuid.uuid4())
         await self._send_raw(f"bgapi {command}\nJob-UUID: {job_uuid}")
         await asyncio.wait_for(self._response_queue.get(), timeout=5.0)
