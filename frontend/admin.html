@@ -464,6 +464,19 @@
     .app-stat-val { font-size: 20px; font-weight: 800; color: var(--text); }
     .app-stat-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
     .apps-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+    .app-card-actions { display:flex; gap:6px; margin-top:4px; }
+
+    /* ── CRUD Modal ──────────────────────────────────────────────────────────── */
+    .adm-modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.65); z-index:300; backdrop-filter:blur(3px); align-items:center; justify-content:center; }
+    .adm-modal-overlay.show { display:flex; }
+    .adm-modal { background:var(--surface1); border:1px solid var(--border); border-radius:14px; padding:24px; width:min(500px,92vw); max-height:88vh; overflow-y:auto; box-shadow:0 20px 60px rgba(0,0,0,.5); }
+    .adm-modal h3 { font-size:15px; font-weight:700; margin:0 0 16px; color:var(--text); display:flex; align-items:center; gap:8px; }
+    .adm-modal .field { margin-bottom:12px; }
+    .adm-modal .field label { display:block; font-size:11px; color:var(--muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:.04em; }
+    .adm-modal .field input, .adm-modal .field select { width:100%; box-sizing:border-box; }
+    .adm-modal .modal-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:18px; border-top:1px solid var(--border); padding-top:14px; }
+    .btn-danger { background:rgba(239,68,68,.15); color:#f87171; border:1px solid rgba(239,68,68,.3); padding:6px 14px; border-radius:7px; font-size:12px; cursor:pointer; transition:var(--t); }
+    .btn-danger:hover { background:rgba(239,68,68,.28); }
   </style>
 </head>
 <body>
@@ -502,6 +515,9 @@
 </header>
 
 <div class="overlay" id="overlay" onclick="closeSidebar()"></div>
+<div class="adm-modal-overlay" id="adm-modal-overlay" onclick="if(event.target===this)closeModal()">
+  <div class="adm-modal" id="adm-modal-box"></div>
+</div>
 
 <div class="adm-layout">
 
@@ -807,6 +823,7 @@
         <div class="page-actions">
           <button class="btn btn-ghost btn-sm" onclick="loadSubscribers()">↻ Refresh</button>
           <button class="btn btn-ghost btn-sm" onclick="exportSubscribersCSV()">⬇ CSV</button>
+          <button class="btn btn-primary btn-sm" onclick="adminCreateSub()">+ Create Subscription</button>
         </div>
       </div>
 
@@ -849,11 +866,11 @@
               <tr>
                 <th>Username</th><th>App</th><th>Email</th><th>Extension</th>
                 <th>DID</th><th>Plan</th><th>Revenue</th><th>Min Left</th>
-                <th>Purchased</th><th>Cancelled</th><th>Status</th><th>Joined</th>
+                <th>Purchased</th><th>Cancelled</th><th>Status</th><th>Joined</th><th>Actions</th>
               </tr>
             </thead>
             <tbody id="sub-tbody">
-              <tr><td colspan="12" style="text-align:center;color:var(--muted)">Loading…</td></tr>
+              <tr><td colspan="13" style="text-align:center;color:var(--muted)">Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -895,10 +912,10 @@
         <div class="table-wrap" style="max-height:400px">
           <table id="apps-user-table" style="font-size:11px">
             <thead>
-              <tr><th>App ID</th><th>Username</th><th>Email</th><th>Extension</th><th>Joined</th><th>Plan Status</th></tr>
+              <tr><th>App ID</th><th>Username</th><th>Email</th><th>Extension</th><th>Joined</th><th>Plan Status</th><th>Actions</th></tr>
             </thead>
             <tbody id="apps-user-tbody">
-              <tr><td colspan="6" style="text-align:center;color:var(--muted)">Loading…</td></tr>
+              <tr><td colspan="7" style="text-align:center;color:var(--muted)">Loading…</td></tr>
             </tbody>
           </table>
         </div>

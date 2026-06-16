@@ -1,0 +1,6 @@
+{
+  "devDependencies": {
+    "browserify": "^17.0.1",
+    "jssip": "^3.13.8"
+  }
+}

@@ -75,6 +75,16 @@ function populateAppFilter(apps) {
   }
 }
 
+// ── Modal helpers ─────────────────────────────────────────────────────────────
+function showModal(html) {
+  document.getElementById('adm-modal-box').innerHTML = html;
+  document.getElementById('adm-modal-overlay').classList.add('show');
+}
+function closeModal() {
+  document.getElementById('adm-modal-overlay').classList.remove('show');
+  document.getElementById('adm-modal-box').innerHTML = '';
+}
+
 // ── Section navigation ─────────────────────────────────────────────────────────
 function showSection(name, btn) {
   document.querySelectorAll('.adm-section').forEach(s => s.classList.remove('active'));
@@ -550,13 +560,13 @@ async function deleteDid(id, number) {
 // ── Subscribers ────────────────────────────────────────────────────────────────
 async function loadSubscribers() {
   const tbody = document.getElementById('sub-tbody');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:var(--muted)">Loading…</td></tr>';
+  if (tbody) tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;color:var(--muted)">Loading…</td></tr>';
   try {
     _allSubscribers = await api('GET', '/admin/subscribers');
     _calcSubKPIs(_allSubscribers);
     filterSubscribers();
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;color:var(--red-l)">${err.message}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="13" style="text-align:center;color:var(--red-l)">${err.message}</td></tr>`;
   }
 }
 
@@ -610,7 +620,7 @@ function renderSubscribers(rows) {
   const tbody = document.getElementById('sub-tbody');
   if (!tbody) return;
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:var(--muted)">No records found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;color:var(--muted)">No records found</td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(r => {
@@ -627,6 +637,13 @@ function renderSubscribers(rows) {
       ? Math.max(0, Math.round((sub.minutes_total || 0) - (sub.minutes_used || 0))) + ' min'
       : '—';
     const revenue = sub ? '$' + ((sub.price||0) * (1 + (sub.renewals||0))).toFixed(2) : '—';
+    const subJson = sub ? esc(JSON.stringify(sub)) : '';
+
+    const actions = sub ? `
+      <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10px" onclick='adminEditSub(${JSON.stringify(r.username)},${JSON.stringify(sub)})'>Edit</button>
+      <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10px" onclick="adminAddMinutes('${esc(r.username)}',${sub.minutes_total||0})">+Min</button>
+      <button class="btn-danger" style="padding:2px 8px;font-size:10px;border-radius:5px" onclick="adminDeleteSub('${esc(r.username)}')">Del</button>
+    ` : `<button class="btn btn-primary btn-sm" style="padding:2px 8px;font-size:10px" onclick="adminCreateSubFor('${esc(r.username)}')">Assign</button>`;
 
     return `<tr>
       <td><strong>${esc(r.username)}</strong></td>
@@ -641,8 +658,124 @@ function renderSubscribers(rows) {
       <td style="color:var(--red-l)">${fmtDate(r.cancelled_at)}</td>
       <td>${statusBadge}</td>
       <td style="color:var(--muted)">${fmtDate(r.created_at)}</td>
+      <td style="white-space:nowrap">${actions}</td>
     </tr>`;
   }).join('');
+}
+
+// ── Subscription CRUD ──────────────────────────────────────────────────────────
+
+function _subFormHtml(title, username, sub, usernameOpts) {
+  const freeDids = (_allDids || []).filter(d => !d.owner_username || d.owner_username === username);
+  const didOpts = [
+    `<option value="">— No DID —</option>`,
+    ...freeDids.map(d => `<option value="${esc(d.id)}" ${sub?.did_id===d.id?'selected':''}>${esc(d.number)} (${d.minutes} min, $${d.price})</option>`),
+  ].join('');
+  const userField = usernameOpts
+    ? `<div class="field"><label>User</label><select id="modal-username" class="input">${usernameOpts}</select></div>`
+    : `<div class="field"><label>User</label><input class="input" id="modal-username" value="${esc(username||'')}" readonly></div>`;
+  return `
+    <h3>${title}</h3>
+    ${userField}
+    <div class="field"><label>DID (optional)</label><select id="modal-did" class="input">${didOpts}</select></div>
+    <div class="field"><label>Plan Name</label><input class="input" id="modal-plan" value="${esc(sub?.plan_name||'Custom Plan')}"></div>
+    <div class="field"><label>Price ($)</label><input class="input" type="number" step="0.01" id="modal-price" value="${sub?.price||5}"></div>
+    <div class="field"><label>Total Minutes</label><input class="input" type="number" id="modal-minutes" value="${sub?.minutes_total||10}"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="_submitSub()">Save</button>
+    </div>`;
+}
+
+async function adminCreateSub() {
+  // Ensure we have user and DID lists for the form
+  if (!_allUsers.length) {
+    try { _allUsers = await api('GET', '/admin/users'); } catch(_) {}
+  }
+  if (!_allDids.length) {
+    try { _allDids = await api('GET', '/admin/dids'); } catch(_) {}
+  }
+  const userOpts = _allUsers.length
+    ? _allUsers.map(u => `<option value="${esc(u.username)}">${esc(u.username)}</option>`).join('')
+    : (_allSubscribers||[]).map(r => `<option value="${esc(r.username)}">${esc(r.username)}</option>`).join('') || '<option value="">— no users found —</option>';
+  showModal(_subFormHtml('Create Subscription', '', null, userOpts));
+  window._subEditMode = { isNew: true };
+}
+
+async function adminCreateSubFor(username) {
+  if (!_allDids.length) {
+    try { _allDids = await api('GET', '/admin/dids'); } catch(_) {}
+  }
+  showModal(_subFormHtml(`Assign Plan — ${username}`, username, null, null));
+  window._subEditMode = { isNew: true, username };
+}
+
+function adminEditSub(username, sub) {
+  showModal(_subFormHtml(`Edit Subscription — ${username}`, username, sub, null));
+  window._subEditMode = { isNew: false, username };
+}
+
+async function _submitSub() {
+  const mode = window._subEditMode || {};
+  const username = (document.getElementById('modal-username')?.value || mode.username || '').trim();
+  if (!username) { alert('Select a user'); return; }
+  const did_id      = document.getElementById('modal-did')?.value || '';
+  const plan_name   = document.getElementById('modal-plan')?.value || 'Custom Plan';
+  const price       = parseFloat(document.getElementById('modal-price')?.value || 5);
+  const minutes     = parseInt(document.getElementById('modal-minutes')?.value || 10);
+  try {
+    if (mode.isNew) {
+      await api('POST', '/admin/subscriptions', { username, did_id, plan_name, price, minutes });
+    } else {
+      await api('PATCH', `/admin/subscriptions/${username}`, { plan_name, price, minutes_total: minutes });
+    }
+    closeModal();
+    await loadSubscribers();
+    if (document.getElementById('sec-apps')?.classList.contains('active')) loadApps();
+  } catch(e) { alert('Error: ' + (e.message || e)); }
+}
+
+async function adminAddMinutes(username, currentTotal) {
+  const n = parseInt(prompt(`Add minutes to ${username}\nCurrent total: ${currentTotal} min\n\nMinutes to add:`) || '0');
+  if (!n || n <= 0) return;
+  try {
+    await api('PATCH', `/admin/subscriptions/${username}`, { add_minutes: n });
+    await loadSubscribers();
+  } catch(e) { alert('Error: ' + (e.message || e)); }
+}
+
+async function adminDeleteSub(username) {
+  if (!confirm(`Cancel and delete subscription for "${username}"?\n\nThis frees their DID and removes all plan data.`)) return;
+  try {
+    await api('DELETE', `/admin/subscriptions/${username}`);
+    await loadSubscribers();
+    if (document.getElementById('sec-apps')?.classList.contains('active')) loadApps();
+  } catch(e) { alert('Error: ' + (e.message || e)); }
+}
+
+// ── App CRUD ───────────────────────────────────────────────────────────────────
+
+async function renameApp(appId) {
+  const newName = (prompt(`Rename app "${appId}" to:\n(e.g. dialer-prod, wowosim-v2)`) || '').trim();
+  if (!newName || newName === appId) return;
+  try {
+    const r = await api('PATCH', `/admin/apps/${encodeURIComponent(appId)}/rename`, { new_name: newName });
+    alert(`Renamed "${appId}" → "${newName}" (${r.updated_users} users updated)`);
+    await loadApps();
+    _allApps = await api('GET', '/admin/apps');
+    populateAppFilter(_allApps);
+  } catch(e) { alert('Error: ' + (e.message || e)); }
+}
+
+async function deleteApp(appId) {
+  if (!confirm(`Delete app "${appId}"?\n\nThis will clear the app_id from all users in this app (they move to "no app"). Subscriptions remain unchanged.`)) return;
+  try {
+    const r = await api('DELETE', `/admin/apps/${encodeURIComponent(appId)}`);
+    alert(`Cleared "${appId}" from ${r.cleared_users} users.`);
+    await loadApps();
+    _allApps = await api('GET', '/admin/apps');
+    populateAppFilter(_allApps);
+  } catch(e) { alert('Error: ' + (e.message || e)); }
 }
 
 function exportSubscribersCSV() {
@@ -686,19 +819,25 @@ function renderApps(apps) {
     return;
   }
   const filtered = _globalAppFilter ? apps.filter(a => a.app_id === _globalAppFilter) : apps;
-  grid.innerHTML = filtered.map(a => `
+  grid.innerHTML = filtered.map(a => {
+    const isDefault = a.app_id === 'default';
+    return `
     <div class="app-card">
       <div class="app-card-name">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
-        ${esc(a.app_id === 'default' ? 'Default App' : a.app_id)}
+        ${esc(isDefault ? 'Default App' : a.app_id)}
       </div>
       <div class="app-stat-row">
         <div class="app-stat"><div class="app-stat-val">${a.users}</div><div class="app-stat-lbl">Users</div></div>
         <div class="app-stat"><div class="app-stat-val" style="color:var(--green-l)">${a.active_subs}</div><div class="app-stat-lbl">Active Plans</div></div>
         <div class="app-stat"><div class="app-stat-val" style="color:var(--amber-l)">$${(a.revenue||0).toFixed(2)}</div><div class="app-stat-lbl">Revenue</div></div>
       </div>
-    </div>
-  `).join('');
+      <div class="app-card-actions">
+        <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 10px" onclick="renameApp('${esc(a.app_id)}')">Rename</button>
+        ${!isDefault ? `<button class="btn-danger" style="font-size:10px;padding:2px 10px;border-radius:5px" onclick="deleteApp('${esc(a.app_id)}')">Delete</button>` : ''}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 function renderAppsUserTable(rows) {
@@ -714,7 +853,7 @@ function renderAppsUserTable(rows) {
     seen.add(r.username); return true;
   });
   if (!unique.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted)">No users</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted)">No users</td></tr>';
     return;
   }
   tbody.innerHTML = unique.map(r => {
@@ -724,6 +863,10 @@ function renderAppsUserTable(rows) {
     if (isActive) statusBadge = '<span class="badge badge-active">Active</span>';
     else if (r.has_subscription) statusBadge = '<span class="badge badge-cancelled">Cancelled</span>';
     else statusBadge = '<span class="badge badge-none">No Plan</span>';
+    const subActions = sub
+      ? `<button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:10px" onclick='adminEditSub(${JSON.stringify(r.username)},${JSON.stringify(sub)})'>Edit</button>
+         <button class="btn-danger" style="padding:2px 8px;font-size:10px;border-radius:5px" onclick="adminDeleteSub('${esc(r.username)}')">Del</button>`
+      : `<button class="btn btn-primary btn-sm" style="padding:2px 8px;font-size:10px" onclick="adminCreateSubFor('${esc(r.username)}')">Assign</button>`;
     return `<tr>
       <td>${appBadge(r.app_id)}</td>
       <td><strong>${esc(r.username)}</strong></td>
@@ -731,6 +874,7 @@ function renderAppsUserTable(rows) {
       <td style="color:var(--purple-l)">${r.extension ? `Ext ${r.extension}` : '—'}</td>
       <td style="color:var(--muted)">${fmtDate(r.created_at)}</td>
       <td>${statusBadge}</td>
+      <td style="white-space:nowrap">${subActions}</td>
     </tr>`;
   }).join('');
 }
