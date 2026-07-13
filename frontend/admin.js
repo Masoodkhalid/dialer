@@ -143,9 +143,26 @@ function fmt_phone(n) {
 function esc(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
+const _appColors = ['indigo','violet','cyan','emerald','rose','amber','blue'];
+function _appColor(id) {
+  if (!id || id === 'default') return 'default';
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return _appColors[h % _appColors.length];
+}
+function _appInitials(id) {
+  if (!id || id === 'default') return '?';
+  return id.replace(/[^a-zA-Z0-9]/g,' ').trim().split(/\s+/)
+    .map(w => w[0] || '').join('').slice(0,2).toUpperCase() || id[0].toUpperCase();
+}
 function appBadge(id) {
-  if (!id || id === 'default') return '<span class="badge-app">default</span>';
-  return `<span class="badge-app">${esc(id)}</span>`;
+  if (!id || id === 'default') return '<span class="badge-app" style="opacity:.6">default</span>';
+  const color = _appColor(id);
+  const colorMap = {
+    indigo:'#4338CA', violet:'#6D28D9', cyan:'#0E7490',
+    emerald:'#047857', rose:'#BE123C', amber:'#B45309', blue:'#1D4ED8', default:'#64748B'
+  };
+  return `<span class="badge-app" style="background:${colorMap[color]}18;color:${colorMap[color]};border-color:${colorMap[color]}30">${esc(id)}</span>`;
 }
 
 function sipLabel(code) {
@@ -815,26 +832,54 @@ function renderApps(apps) {
   const grid = document.getElementById('apps-grid');
   if (!grid) return;
   if (!apps.length) {
-    grid.innerHTML = '<div style="color:var(--muted);font-size:12px">No app data yet — register users with an app_id to see them here.</div>';
+    grid.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px">No apps yet — register users with an app_id to see them here.</div>';
     return;
   }
   const filtered = _globalAppFilter ? apps.filter(a => a.app_id === _globalAppFilter) : apps;
+  const colorMap = {
+    indigo:'#4338CA', violet:'#6D28D9', cyan:'#0E7490',
+    emerald:'#047857', rose:'#BE123C', amber:'#B45309', blue:'#1D4ED8', default:'#64748B'
+  };
   grid.innerHTML = filtered.map(a => {
     const isDefault = a.app_id === 'default';
+    const displayName = isDefault ? 'Default App' : a.app_id;
+    const color = _appColor(a.app_id);
+    const initials = _appInitials(a.app_id);
+    const c = colorMap[color];
+    const activePct = a.users > 0 ? Math.round((a.active_subs / a.users) * 100) : 0;
     return `
-    <div class="app-card">
-      <div class="app-card-name">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
-        ${esc(isDefault ? 'Default App' : a.app_id)}
+    <div class="app-card" data-color="${color}">
+      <div class="app-card-header">
+        <div class="app-logo" data-color="${color}">${initials}</div>
+        <div class="app-info">
+          <div class="app-card-name">${esc(displayName)}</div>
+          <div class="app-card-id">${isDefault ? 'No app tag' : `ID: ${esc(a.app_id)}`}</div>
+        </div>
       </div>
+      <div class="app-divider"></div>
       <div class="app-stat-row">
-        <div class="app-stat"><div class="app-stat-val">${a.users}</div><div class="app-stat-lbl">Users</div></div>
-        <div class="app-stat"><div class="app-stat-val" style="color:var(--green-l)">${a.active_subs}</div><div class="app-stat-lbl">Active Plans</div></div>
-        <div class="app-stat"><div class="app-stat-val" style="color:var(--amber-l)">$${(a.revenue||0).toFixed(2)}</div><div class="app-stat-lbl">Revenue</div></div>
+        <div class="app-stat">
+          <div class="app-stat-val">${a.users}</div>
+          <div class="app-stat-lbl">Users</div>
+        </div>
+        <div class="app-stat">
+          <div class="app-stat-val" style="color:${c}">${a.active_subs}</div>
+          <div class="app-stat-lbl">Active Plans</div>
+        </div>
+        <div class="app-stat">
+          <div class="app-stat-val" style="color:${c}">$${(a.revenue||0).toFixed(0)}</div>
+          <div class="app-stat-lbl">Revenue</div>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--muted);font-weight:600;display:flex;align-items:center;gap:8px">
+        <div style="flex:1;height:4px;background:#F1F5F9;border-radius:99px;overflow:hidden">
+          <div style="width:${activePct}%;height:100%;background:${c};border-radius:99px;transition:.5s"></div>
+        </div>
+        ${activePct}% active
       </div>
       <div class="app-card-actions">
-        <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 10px" onclick="renameApp('${esc(a.app_id)}')">Rename</button>
-        ${!isDefault ? `<button class="btn-danger" style="font-size:10px;padding:2px 10px;border-radius:5px" onclick="deleteApp('${esc(a.app_id)}')">Delete</button>` : ''}
+        <button class="btn btn-ghost btn-sm" style="flex:1;justify-content:center" onclick="renameApp('${esc(a.app_id)}')">✏ Rename</button>
+        ${!isDefault ? `<button class="btn btn-sm" style="flex:1;justify-content:center;background:var(--red-soft);color:var(--red);border:1px solid rgba(220,38,38,.2)" onclick="deleteApp('${esc(a.app_id)}')">✕ Delete</button>` : ''}
       </div>
     </div>`;
   }).join('');
