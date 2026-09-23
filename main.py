@@ -1841,7 +1841,7 @@ async def admin_delete_voice_plan(plan_id: str, payload: dict = Depends(require_
 # ── Voice plan purchase (auto-assigns a hidden DID) ───────────────────────────
 
 @app.post("/voice-plans/{plan_id}/create-payment-intent")
-async def voice_plan_purchase_intent(plan_id: str, payload: dict = Depends(require_any)):
+async def voice_plan_purchase_intent(plan_id: str, body: dict = Body(default={}), payload: dict = Depends(require_any)):
     """Step 1: Create a Stripe PaymentIntent for a voice plan.
     A free DID is auto-assigned (hidden from user). The same DID is reused for
     future renewals so the caller-ID shown to callees stays consistent.
@@ -1876,12 +1876,15 @@ async def voice_plan_purchase_intent(plan_id: str, payload: dict = Depends(requi
         raise HTTPException(503, "No phone numbers available. Please try again later.")
 
     try:
+        # Use email from request body first, fall back to stored user email
+        email = body.get("email") or user.email or None
         intent = stripe.PaymentIntent.create(
             amount=int(plan.price * 100),
             currency="usd",
-            receipt_email=user.email if user.email else None,
+            receipt_email=email,
             metadata={
                 "username": username,
+                "email": email or "",
                 "plan_id": plan_id,
                 "did_id": assigned_did.id,
                 "app_id": user.app_id or "",
