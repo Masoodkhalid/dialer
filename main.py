@@ -1889,7 +1889,7 @@ async def voice_plan_purchase_intent(plan_id: str, body: dict = Body(default={})
             customer = stripe.Customer.create(**customer_kwargs)
             customer_id = customer.id
             user.stripe_customer_id = customer_id
-            storage.save()
+            _save()
 
         intent = stripe.PaymentIntent.create(
             amount=int(plan.price * 100),
