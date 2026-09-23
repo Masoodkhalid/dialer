@@ -1838,6 +1838,124 @@ async def admin_delete_voice_plan(plan_id: str, payload: dict = Depends(require_
     return {"status": "deleted"}
 
 
+# ── Voice plan purchase (auto-assigns a hidden DID) ───────────────────────────
+
+@app.post("/voice-plans/{plan_id}/create-payment-intent")
+async def voice_plan_purchase_intent(plan_id: str, payload: dict = Depends(require_any)):
+    """Step 1: Create a Stripe PaymentIntent for a voice plan.
+    A free DID is auto-assigned (hidden from user). The same DID is reused for
+    future renewals so the caller-ID shown to callees stays consistent.
+    """
+    username = payload.get("username")
+    user = users.get(username)
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    plan = next((p for p in voice_plans if p.id == plan_id and p.is_active), None)
+    if not plan:
+        raise HTTPException(404, "Voice plan not found")
+
+    existing = subscriptions.get(username)
+    if existing and existing.is_active:
+        raise HTTPException(400, "You already have an active plan. Renew instead.")
+
+    if not settings.STRIPE_SECRET_KEY:
+        raise HTTPException(500, "Stripe is not configured")
+
+    # Find or keep a DID for this user — reuse if they had one before
+    assigned_did = None
+    if existing and existing.did_id:
+        assigned_did = next((d for d in dids if d.id == existing.did_id), None)
+    if not assigned_did:
+        # Pick an available DID (for_sale=True, not owned or owned by this user)
+        assigned_did = next(
+            (d for d in dids if d.for_sale and (not d.owner_username or d.owner_username == username)),
+            None,
+        )
+    if not assigned_did:
+        raise HTTPException(503, "No phone numbers available. Please try again later.")
+
+    try:
+        intent = stripe.PaymentIntent.create(
+            amount=int(plan.price * 100),
+            currency="usd",
+            metadata={
+                "username": username,
+                "plan_id": plan_id,
+                "did_id": assigned_did.id,
+                "app_id": user.app_id or "",
+                "type": "voice_plan",
+            },
+            description=f"{plan.name}: {plan.minutes} mins / {plan.validity_days} days",
+        )
+    except stripe.StripeError as e:
+        raise HTTPException(400, str(e))
+
+    return {
+        "client_secret": intent.client_secret,
+        "payment_intent_id": intent.id,
+        "amount": plan.price,
+        "plan_name": plan.name,
+        "minutes": plan.minutes,
+        "validity_days": plan.validity_days,
+    }
+
+
+@app.post("/voice-plans/{plan_id}/purchase")
+async def voice_plan_purchase(plan_id: str, body: dict, payload: dict = Depends(require_any)):
+    """Step 2: Activate subscription after Stripe payment succeeded.
+    Body: {"payment_intent_id": "pi_xxx"}
+    """
+    username = payload.get("username")
+    user = users.get(username)
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    plan = next((p for p in voice_plans if p.id == plan_id and p.is_active), None)
+    if not plan:
+        raise HTTPException(404, "Voice plan not found")
+
+    existing = subscriptions.get(username)
+    if existing and existing.is_active:
+        raise HTTPException(400, "You already have an active plan. Renew instead.")
+
+    # Re-find (or keep) the DID for this user
+    assigned_did = None
+    if existing and existing.did_id:
+        assigned_did = next((d for d in dids if d.id == existing.did_id), None)
+    if not assigned_did:
+        assigned_did = next(
+            (d for d in dids if d.for_sale and (not d.owner_username or d.owner_username == username)),
+            None,
+        )
+    if not assigned_did:
+        raise HTTPException(503, "No phone numbers available.")
+
+    # Mark DID as owned
+    assigned_did.owner_username = username
+
+    sub = Subscription(
+        username=username,
+        did_id=assigned_did.id,
+        did_number=assigned_did.number,
+        plan_name=plan.name,
+        price=plan.price,
+        minutes_total=plan.minutes,
+        minutes_used=0.0,
+        is_active=True,
+        app_id=user.app_id or "",
+    )
+    subscriptions[username] = sub
+    _save()
+
+    return {
+        "status": "active",
+        "plan_name": sub.plan_name,
+        "minutes_total": sub.minutes_total,
+        "remaining_minutes": sub.minutes_total,
+    }
+
+
 # ── Stripe admin ──────────────────────────────────────────────────────────────
 
 @app.get("/admin/payments")
