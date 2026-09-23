@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
 
+    # Stripe
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+    STRIPE_PUBLISHABLE_KEY: str = ""
+
     # Authentication
     AUTH_SECRET_KEY: str = "dialer-change-me-in-production"
     ADMIN_USERNAME: str = "admin"

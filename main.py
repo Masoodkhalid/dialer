@@ -51,11 +51,15 @@ from models import (
     WSMessage,
 )
 
+import stripe
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+stripe.api_key = settings.STRIPE_SECRET_KEY
 
 # ── Singletons ─────────────────────────────────────────────────────────────────
 
@@ -746,15 +750,14 @@ async def store_plans(payload: dict = Depends(require_any)):
     return available
 
 
-@app.post("/store/purchase/{did_id}")
-async def store_purchase(did_id: str, payload: dict = Depends(require_any)):
-    """Purchase a DID (dummy — no real payment). Creates subscription."""
+@app.post("/store/purchase/{did_id}/create-payment-intent")
+async def store_purchase_intent(did_id: str, payload: dict = Depends(require_any)):
+    """Step 1: Create a Stripe PaymentIntent for purchasing a DID plan."""
     username = payload.get("username")
     user = users.get(username)
     if not user:
         raise HTTPException(404, "User not found")
 
-    # Check no existing active subscription
     existing = subscriptions.get(username)
     if existing and existing.is_active:
         raise HTTPException(400, "You already have an active plan. Renew instead.")
@@ -767,10 +770,55 @@ async def store_purchase(did_id: str, payload: dict = Depends(require_any)):
     if did.owner_username and did.owner_username != username:
         raise HTTPException(409, "This number has already been purchased")
 
-    # Mark DID as owned
+    if not settings.STRIPE_SECRET_KEY:
+        raise HTTPException(500, "Stripe is not configured")
+
+    try:
+        intent = stripe.PaymentIntent.create(
+            amount=int(did.price * 100),
+            currency="usd",
+            metadata={
+                "username": username,
+                "did_id": did_id,
+                "app_id": user.app_id or "",
+                "type": "purchase",
+            },
+            description=f"Voice Plan: {did.minutes} mins - {did.number}",
+        )
+    except stripe.StripeError as e:
+        raise HTTPException(400, str(e))
+
+    return {
+        "client_secret": intent.client_secret,
+        "payment_intent_id": intent.id,
+        "amount": did.price,
+        "did_number": did.number,
+        "minutes": did.minutes,
+    }
+
+
+@app.post("/store/purchase/{did_id}")
+async def store_purchase(did_id: str, payload: dict = Depends(require_any)):
+    """Step 2: Confirm purchase after Stripe payment succeeded (called by app after payment confirmation)."""
+    username = payload.get("username")
+    user = users.get(username)
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    existing = subscriptions.get(username)
+    if existing and existing.is_active:
+        raise HTTPException(400, "You already have an active plan. Renew instead.")
+
+    did = next((d for d in dids if d.id == did_id), None)
+    if not did:
+        raise HTTPException(404, "DID not found")
+    if not did.for_sale:
+        raise HTTPException(400, "This number is not available for purchase")
+    if did.owner_username and did.owner_username != username:
+        raise HTTPException(409, "This number has already been purchased")
+
     did.owner_username = username
 
-    # Create / replace subscription
     sub = Subscription(
         username=username,
         did_id=did.id,
@@ -780,11 +828,10 @@ async def store_purchase(did_id: str, payload: dict = Depends(require_any)):
         minutes_total=did.minutes,
         minutes_used=0.0,
         is_active=True,
+        app_id=user.app_id,
     )
     subscriptions[username] = sub
 
-    # Assign DID as the user's caller ID (update their config for quick-dial)
-    # We store it via a convention: use the purchased DID as default caller_id
     _save()
     logger.info("PURCHASE: user=%s did=%s plan=%s", username, did.number, sub.plan_name)
 
@@ -821,16 +868,56 @@ async def my_subscription(payload: dict = Depends(require_any)):
     }
 
 
-@app.post("/my/subscription/renew")
-async def renew_subscription(payload: dict = Depends(require_any)):
-    """Renew (top-up) 10 more minutes for $5 (dummy payment)."""
+@app.post("/my/subscription/renew/create-payment-intent")
+async def renew_subscription_intent(payload: dict = Depends(require_any)):
+    """Step 1: Create a Stripe PaymentIntent for renewing (topping up) minutes."""
     username = payload.get("username")
     sub = subscriptions.get(username)
     if not sub:
         raise HTTPException(404, "No subscription found — purchase a plan first")
 
-    # Add 10 more minutes and reactivate
-    sub.minutes_total += 10
+    if not settings.STRIPE_SECRET_KEY:
+        raise HTTPException(500, "Stripe is not configured")
+
+    did = next((d for d in dids if d.id == sub.did_id), None)
+    renew_price = did.price if did else sub.price
+    renew_minutes = did.minutes if did else 10
+
+    try:
+        intent = stripe.PaymentIntent.create(
+            amount=int(renew_price * 100),
+            currency="usd",
+            metadata={
+                "username": username,
+                "type": "renewal",
+                "app_id": sub.app_id or "",
+            },
+            description=f"Voice Plan Renewal: {renew_minutes} mins",
+        )
+    except stripe.StripeError as e:
+        raise HTTPException(400, str(e))
+
+    return {
+        "client_secret": intent.client_secret,
+        "payment_intent_id": intent.id,
+        "amount": renew_price,
+        "minutes_to_add": renew_minutes,
+    }
+
+
+@app.post("/my/subscription/renew")
+async def renew_subscription(payload: dict = Depends(require_any)):
+    """Step 2: Confirm renewal after Stripe payment succeeded."""
+    username = payload.get("username")
+    sub = subscriptions.get(username)
+    if not sub:
+        raise HTTPException(404, "No subscription found — purchase a plan first")
+
+    did = next((d for d in dids if d.id == sub.did_id), None)
+    renew_minutes = did.minutes if did else 10
+    renew_price = did.price if did else sub.price
+
+    sub.minutes_total += renew_minutes
     sub.is_active = True
     sub.renewals += 1
 
@@ -840,12 +927,12 @@ async def renew_subscription(payload: dict = Depends(require_any)):
                 username, sub.renewals, sub.minutes_total, minutes_remaining)
 
     return {
-        "status":           "renewed",
-        "minutes_total":    sub.minutes_total,
-        "minutes_used":     round(sub.minutes_used, 2),
+        "status": "renewed",
+        "minutes_total": sub.minutes_total,
+        "minutes_used": round(sub.minutes_used, 2),
         "minutes_remaining": minutes_remaining,
-        "renewals":         sub.renewals,
-        "price_paid":       5.0,
+        "renewals": sub.renewals,
+        "price_paid": renew_price,
     }
 
 
@@ -1686,3 +1773,71 @@ async def delete_app(app_id: str, payload: dict = Depends(require_admin)):
             s.app_id = None
     _save()
     return {"status": "ok", "cleared_users": count}
+
+
+# ── Stripe webhook ─────────────────────────────────────────────────────────────
+
+@app.post("/stripe/webhook")
+async def stripe_webhook(request: Request):
+    """Stripe sends payment confirmation here. Activates subscription on success."""
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature", "")
+
+    if not settings.STRIPE_WEBHOOK_SECRET:
+        raise HTTPException(500, "Stripe webhook secret not configured")
+
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, settings.STRIPE_WEBHOOK_SECRET)
+    except stripe.SignatureVerificationError:
+        raise HTTPException(400, "Invalid Stripe signature")
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+    if event["type"] == "payment_intent.succeeded":
+        intent = event["data"]["object"]
+        meta = intent.get("metadata", {})
+        username = meta.get("username")
+        payment_type = meta.get("type")
+
+        if not username:
+            return {"status": "ignored"}
+
+        if payment_type == "purchase":
+            did_id = meta.get("did_id")
+            did = next((d for d in dids if d.id == did_id), None)
+            user = users.get(username)
+            if did and user and not (subscriptions.get(username) and subscriptions[username].is_active):
+                did.owner_username = username
+                sub = Subscription(
+                    username=username,
+                    did_id=did.id,
+                    did_number=did.number,
+                    plan_name=f"USA {did.minutes}-min Pack",
+                    price=did.price,
+                    minutes_total=did.minutes,
+                    minutes_used=0.0,
+                    is_active=True,
+                    app_id=user.app_id,
+                )
+                subscriptions[username] = sub
+                _save()
+                logger.info("STRIPE PURCHASE: user=%s did=%s", username, did.number)
+
+        elif payment_type == "renewal":
+            sub = subscriptions.get(username)
+            if sub:
+                did = next((d for d in dids if d.id == sub.did_id), None)
+                renew_minutes = did.minutes if did else 10
+                sub.minutes_total += renew_minutes
+                sub.is_active = True
+                sub.renewals += 1
+                _save()
+                logger.info("STRIPE RENEWAL: user=%s minutes_added=%d", username, renew_minutes)
+
+    return {"status": "ok"}
+
+
+@app.get("/stripe/publishable-key")
+async def stripe_publishable_key():
+    """Return the Stripe publishable key for the Flutter app."""
+    return {"publishable_key": settings.STRIPE_PUBLISHABLE_KEY}
