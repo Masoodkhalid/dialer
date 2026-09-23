@@ -1850,6 +1850,8 @@ async def admin_payments(limit: int = 50, payload: dict = Depends(require_admin)
         result = []
         for pi in intents.data:
             meta = pi.get("metadata", {})
+            if not meta.get("username"):
+                continue  # skip non-voice payments (eSIM etc.)
             result.append({
                 "id": pi.id,
                 "amount": pi.amount / 100,
