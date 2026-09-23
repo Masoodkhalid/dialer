@@ -1878,9 +1878,23 @@ async def voice_plan_purchase_intent(plan_id: str, body: dict = Body(default={})
     try:
         # Use email from request body first, fall back to stored user email
         email = body.get("email") or user.email or None
+
+        # Find or create a Stripe Customer so details show on Incomplete payments
+        customer_id = getattr(user, 'stripe_customer_id', None)
+        if not customer_id:
+            customer_kwargs = {"metadata": {"username": username, "app_id": user.app_id or ""}}
+            if email:
+                customer_kwargs["email"] = email
+                customer_kwargs["name"] = username
+            customer = stripe.Customer.create(**customer_kwargs)
+            customer_id = customer.id
+            user.stripe_customer_id = customer_id
+            storage.save()
+
         intent = stripe.PaymentIntent.create(
             amount=int(plan.price * 100),
             currency="usd",
+            customer=customer_id,
             receipt_email=email,
             metadata={
                 "username": username,

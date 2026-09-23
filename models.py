@@ -59,6 +59,7 @@ class User(BaseModel):
     sip_password: Optional[str] = None      # FreeSWITCH SIP auth password (for webphone)
     email: Optional[str] = None             # email address (optional)
     app_id: Optional[str] = None            # which mobile app created this user (multi-tenant)
+    stripe_customer_id: Optional[str] = None  # Stripe Customer ID for payment tracking
 
 
 class DID(BaseModel):
