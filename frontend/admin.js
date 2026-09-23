@@ -98,6 +98,8 @@ function showSection(name, btn) {
   if (name === 'subscribers') loadSubscribers();
   if (name === 'inbound')     loadInbound();
   if (name === 'apps')        loadApps();
+  if (name === 'payments')    loadPayments();
+  if (name === 'voice-plans') loadVoicePlans();
 }
 
 // ── API helper ─────────────────────────────────────────────────────────────────
@@ -1000,6 +1002,148 @@ function _dlCSV(rows, filename) {
     download: filename,
   });
   document.body.appendChild(a); a.click(); a.remove();
+}
+
+// ── Voice Plans ────────────────────────────────────────────────────────────────
+async function loadVoicePlans() {
+  const tbody = document.getElementById('vp-tbody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted)">Loading…</td></tr>';
+  try {
+    const plans = await api('GET', '/admin/voice-plans');
+    if (!plans.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted)">No plans yet. Click "+ New Plan" to create one.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = plans.map(p => `<tr>
+      <td><strong>${p.name}</strong></td>
+      <td>${p.minutes} mins</td>
+      <td>$${p.price.toFixed(2)}</td>
+      <td>${p.validity_days} days</td>
+      <td>${p.description || '—'}</td>
+      <td>${p.is_active ? '<span class="badge badge-active">Active</span>' : '<span class="badge badge-cancelled">Inactive</span>'}</td>
+      <td>
+        <button class="btn btn-ghost btn-sm" onclick="editVoicePlan(${esc(JSON.stringify(p))})">Edit</button>
+        <button class="btn btn-ghost btn-sm" style="color:var(--red-l)" onclick="deleteVoicePlan('${p.id}')">Delete</button>
+      </td>
+    </tr>`).join('');
+  } catch (err) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--red-l)">${err.message}</td></tr>`;
+  }
+}
+
+function openCreatePlanModal() {
+  document.getElementById('vp-id').value = '';
+  document.getElementById('vp-name').value = '';
+  document.getElementById('vp-minutes').value = '';
+  document.getElementById('vp-price').value = '';
+  document.getElementById('vp-validity').value = '30';
+  document.getElementById('vp-desc').value = '';
+  document.getElementById('vp-active').checked = true;
+  document.getElementById('vp-modal-title').textContent = 'New Voice Plan';
+  document.getElementById('vp-modal').style.display = 'flex';
+}
+
+function editVoicePlan(p) {
+  document.getElementById('vp-id').value = p.id;
+  document.getElementById('vp-name').value = p.name;
+  document.getElementById('vp-minutes').value = p.minutes;
+  document.getElementById('vp-price').value = p.price;
+  document.getElementById('vp-validity').value = p.validity_days;
+  document.getElementById('vp-desc').value = p.description || '';
+  document.getElementById('vp-active').checked = p.is_active;
+  document.getElementById('vp-modal-title').textContent = 'Edit Voice Plan';
+  document.getElementById('vp-modal').style.display = 'flex';
+}
+
+function closeVpModal() {
+  document.getElementById('vp-modal').style.display = 'none';
+}
+
+async function saveVoicePlan() {
+  const id = document.getElementById('vp-id').value;
+  const body = {
+    name:         document.getElementById('vp-name').value,
+    minutes:      parseInt(document.getElementById('vp-minutes').value) || 10,
+    price:        parseFloat(document.getElementById('vp-price').value) || 5.0,
+    validity_days: parseInt(document.getElementById('vp-validity').value) || 30,
+    description:  document.getElementById('vp-desc').value || null,
+    is_active:    document.getElementById('vp-active').checked,
+  };
+  try {
+    if (id) {
+      await api('PATCH', `/admin/voice-plans/${id}`, body);
+    } else {
+      await api('POST', '/admin/voice-plans', body);
+    }
+    closeVpModal();
+    await loadVoicePlans();
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+}
+
+async function deleteVoicePlan(id) {
+  if (!confirm('Delete this voice plan?')) return;
+  try {
+    await api('DELETE', `/admin/voice-plans/${id}`);
+    await loadVoicePlans();
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+}
+
+// ── Payments ───────────────────────────────────────────────────────────────────
+async function loadPayments() {
+  const tbody = document.getElementById('pay-tbody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted)">Loading…</td></tr>';
+  try {
+    const payments = await api('GET', '/admin/payments');
+    _renderPayments(payments);
+  } catch (err) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--red-l)">${err.message}</td></tr>`;
+  }
+}
+
+function _renderPayments(payments) {
+  const tbody = document.getElementById('pay-tbody');
+  if (!tbody) return;
+
+  const succeeded = payments.filter(p => p.status === 'succeeded');
+  const totalRevenue = succeeded.reduce((s, p) => s + p.amount, 0);
+  const purchases = succeeded.filter(p => p.type === 'purchase').length;
+  const renewals  = succeeded.filter(p => p.type === 'renewal').length;
+
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('pay-total-revenue',  '$' + totalRevenue.toFixed(2));
+  set('pay-total-count',    succeeded.length);
+  set('pay-purchase-count', purchases);
+  set('pay-renewal-count',  renewals);
+
+  if (!payments.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted)">No payments found</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = payments.map(p => {
+    const date = new Date(p.created * 1000).toLocaleString();
+    const statusBadge = p.status === 'succeeded'
+      ? '<span class="badge badge-active">Succeeded</span>'
+      : `<span class="badge badge-cancelled">${p.status}</span>`;
+    const typeBadge = p.type === 'purchase'
+      ? '<span class="badge badge-active">Purchase</span>'
+      : p.type === 'renewal'
+      ? '<span class="badge" style="background:var(--blue-l,#3b82f6);color:#fff">Renewal</span>'
+      : `<span class="badge">${p.type}</span>`;
+    return `<tr>
+      <td>${date}</td>
+      <td>${p.username}</td>
+      <td>${p.app_id || '—'}</td>
+      <td>${typeBadge}</td>
+      <td>$${p.amount.toFixed(2)} ${p.currency}</td>
+      <td>${statusBadge}</td>
+      <td style="font-size:11px;color:var(--muted)">${p.id}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────────

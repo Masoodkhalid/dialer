@@ -22,7 +22,7 @@ def _default(obj: Any) -> Any:
 
 def save(agents: list, campaigns: dict, calls: list,
          users: list = None, dids: list = None,
-         subscriptions: list = None) -> None:
+         subscriptions: list = None, voice_plans: list = None) -> None:
     """Write current state to disk."""
     try:
         data = {
@@ -33,6 +33,7 @@ def save(agents: list, campaigns: dict, calls: list,
             "users":         [u.model_dump(mode="json") for u in (users or [])],
             "dids":          [d.model_dump(mode="json") for d in (dids or [])],
             "subscriptions": [s.model_dump(mode="json") for s in (subscriptions or [])],
+            "voice_plans":   [p.model_dump(mode="json") for p in (voice_plans or [])],
         }
         tmp = STORAGE_FILE + ".tmp"
         with open(tmp, "w") as f:

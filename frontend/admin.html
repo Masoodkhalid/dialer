@@ -584,6 +584,20 @@
       Apps Overview
     </button>
 
+    <button class="adm-nav-item" id="nav-voice-plans" onclick="showSection('voice-plans',this)">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2z"/><path d="M12 6v6l4 2"/>
+      </svg>
+      Voice Plans
+    </button>
+
+    <button class="adm-nav-item" id="nav-payments" onclick="showSection('payments',this)">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>
+      </svg>
+      Payments
+    </button>
+
     <div class="adm-nav-divider"></div>
     <button class="adm-nav-item" onclick="window.open('/','_blank')">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -950,6 +964,84 @@
           <code style="display:block;margin-top:8px;padding:10px 14px;border-radius:8px;font-size:11px;background:var(--surface2);border:1px solid var(--border)">POST /auth/register<br/>{"username":"...", "password":"...", "app_id":"<strong>your-app-name</strong>"}</code>
           <br/>Or pass it as a header: <code>X-App-ID: your-app-name</code>
         </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════ VOICE PLANS ══════════════════ -->
+    <section id="sec-voice-plans" class="adm-section">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Voice Plans</div>
+          <div class="page-subtitle">Create and manage calling packages</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="loadVoicePlans()">↻ Refresh</button>
+          <button class="btn btn-primary btn-sm" onclick="openCreatePlanModal()">+ New Plan</button>
+        </div>
+      </div>
+
+      <div class="tbl-wrap">
+        <table class="adm-table">
+          <thead><tr>
+            <th>Name</th><th>Minutes</th><th>Price</th><th>Validity</th><th>Description</th><th>Status</th><th>Actions</th>
+          </tr></thead>
+          <tbody id="vp-tbody">
+            <tr><td colspan="7" style="text-align:center;color:var(--muted)">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Create/Edit Plan Modal -->
+      <div id="vp-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:999;display:flex;align-items:center;justify-content:center">
+        <div style="background:var(--bg-card,#fff);border-radius:12px;padding:28px;width:420px;max-width:95vw">
+          <div style="font-size:16px;font-weight:600;margin-bottom:16px" id="vp-modal-title">New Voice Plan</div>
+          <input id="vp-id" type="hidden"/>
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <div><label style="font-size:12px;color:var(--muted)">Plan Name</label><input class="input" id="vp-name" placeholder="e.g. Starter Pack" style="width:100%"/></div>
+            <div style="display:flex;gap:10px">
+              <div style="flex:1"><label style="font-size:12px;color:var(--muted)">Minutes</label><input class="input" id="vp-minutes" type="number" placeholder="5" style="width:100%"/></div>
+              <div style="flex:1"><label style="font-size:12px;color:var(--muted)">Price (USD)</label><input class="input" id="vp-price" type="number" step="0.01" placeholder="2.50" style="width:100%"/></div>
+            </div>
+            <div><label style="font-size:12px;color:var(--muted)">Validity (days)</label><input class="input" id="vp-validity" type="number" placeholder="30" style="width:100%"/></div>
+            <div><label style="font-size:12px;color:var(--muted)">Description (optional)</label><input class="input" id="vp-desc" placeholder="e.g. 5 mins calling, valid 30 days" style="width:100%"/></div>
+            <div style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="vp-active" checked/><label for="vp-active" style="font-size:13px">Active (visible in store)</label></div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:20px;justify-content:flex-end">
+            <button class="btn btn-ghost btn-sm" onclick="closeVpModal()">Cancel</button>
+            <button class="btn btn-primary btn-sm" onclick="saveVoicePlan()">Save Plan</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════ PAYMENTS ══════════════════ -->
+    <section id="sec-payments" class="adm-section">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Payments</div>
+          <div class="page-subtitle">Stripe payment history for voice plans</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="loadPayments()">↻ Refresh</button>
+        </div>
+      </div>
+
+      <div class="kpi-row" style="margin-bottom:20px">
+        <div class="kpi-card kpi-green"><div class="kpi-val" id="pay-total-revenue">—</div><div class="kpi-lbl">Total Revenue</div></div>
+        <div class="kpi-card kpi-blue"><div class="kpi-val" id="pay-total-count">—</div><div class="kpi-lbl">Total Payments</div></div>
+        <div class="kpi-card"><div class="kpi-val" id="pay-purchase-count">—</div><div class="kpi-lbl">Purchases</div></div>
+        <div class="kpi-card"><div class="kpi-val" id="pay-renewal-count">—</div><div class="kpi-lbl">Renewals</div></div>
+      </div>
+
+      <div class="tbl-wrap">
+        <table class="adm-table">
+          <thead><tr>
+            <th>Date</th><th>User</th><th>App</th><th>Type</th><th>Amount</th><th>Status</th><th>Payment ID</th>
+          </tr></thead>
+          <tbody id="pay-tbody">
+            <tr><td colspan="7" style="text-align:center;color:var(--muted)">Loading…</td></tr>
+          </tbody>
+        </table>
       </div>
     </section>
 

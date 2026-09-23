@@ -38,6 +38,7 @@ from models import (
     AgentDisposition,
     AgentLogin,
     Call,
+    VoicePlan,
     CallStatus,
     Campaign,
     CampaignCreate,
@@ -74,6 +75,7 @@ admin_ws_clients: List[WebSocket] = []
 users: Dict[str, User] = {}              # username → User
 dids: List[DID] = []
 subscriptions: Dict[str, Subscription] = {}  # username → Subscription
+voice_plans: List = []                   # VoicePlan list
 
 
 # ── Inbound calling (isolated — see inbound_handler.py) ─────────────────────────
@@ -102,7 +104,7 @@ inbound_router = InboundRouter(esl, _inbound_owner_extension)
 
 def _save() -> None:
     storage.save(agent_mgr.list_all(), campaigns, call_mgr.all_calls(),
-                 list(users.values()), dids, list(subscriptions.values()))
+                 list(users.values()), dids, list(subscriptions.values()), voice_plans)
 
 
 def _load_persisted() -> None:
@@ -123,6 +125,9 @@ def _load_persisted() -> None:
             for s in data.get("subscriptions", []):
                 sub = Subscription(**s)
                 subscriptions[sub.username] = sub
+            from models import VoicePlan as VP
+            for p in data.get("voice_plans", []):
+                voice_plans.append(VP(**p))
             logger.info("Loaded persisted state: %d campaigns, %d calls, %d users, %d DIDs, %d subs",
                         len(data.get("campaigns", [])), len(data.get("calls", [])),
                         len(data.get("users", [])), len(data.get("dids", [])),
@@ -1773,6 +1778,92 @@ async def delete_app(app_id: str, payload: dict = Depends(require_admin)):
             s.app_id = None
     _save()
     return {"status": "ok", "cleared_users": count}
+
+
+# ── Voice Plans CRUD ──────────────────────────────────────────────────────────
+
+@app.get("/voice-plans")
+async def list_voice_plans():
+    """List all active voice plans (public — for the store)."""
+    return [p for p in voice_plans if p.is_active]
+
+
+@app.get("/admin/voice-plans")
+async def admin_list_voice_plans(payload: dict = Depends(require_admin)):
+    """Admin: list all voice plans including inactive."""
+    return voice_plans
+
+
+@app.post("/admin/voice-plans")
+async def admin_create_voice_plan(body: dict, payload: dict = Depends(require_admin)):
+    """Admin: create a new voice plan."""
+    plan = VoicePlan(
+        name=body.get("name", "Voice Pack"),
+        minutes=int(body.get("minutes", 10)),
+        price=float(body.get("price", 5.0)),
+        validity_days=int(body.get("validity_days", 30)),
+        description=body.get("description"),
+        is_active=body.get("is_active", True),
+    )
+    voice_plans.append(plan)
+    _save()
+    return plan
+
+
+@app.patch("/admin/voice-plans/{plan_id}")
+async def admin_update_voice_plan(plan_id: str, body: dict, payload: dict = Depends(require_admin)):
+    """Admin: update a voice plan."""
+    plan = next((p for p in voice_plans if p.id == plan_id), None)
+    if not plan:
+        raise HTTPException(404, "Voice plan not found")
+    if "name"          in body: plan.name          = body["name"]
+    if "minutes"       in body: plan.minutes        = int(body["minutes"])
+    if "price"         in body: plan.price          = float(body["price"])
+    if "validity_days" in body: plan.validity_days  = int(body["validity_days"])
+    if "description"   in body: plan.description    = body["description"]
+    if "is_active"     in body: plan.is_active      = bool(body["is_active"])
+    _save()
+    return plan
+
+
+@app.delete("/admin/voice-plans/{plan_id}")
+async def admin_delete_voice_plan(plan_id: str, payload: dict = Depends(require_admin)):
+    """Admin: delete a voice plan."""
+    global voice_plans
+    plan = next((p for p in voice_plans if p.id == plan_id), None)
+    if not plan:
+        raise HTTPException(404, "Voice plan not found")
+    voice_plans = [p for p in voice_plans if p.id != plan_id]
+    _save()
+    return {"status": "deleted"}
+
+
+# ── Stripe admin ──────────────────────────────────────────────────────────────
+
+@app.get("/admin/payments")
+async def admin_payments(limit: int = 50, payload: dict = Depends(require_admin)):
+    """Admin: list recent Stripe payments."""
+    if not settings.STRIPE_SECRET_KEY:
+        return []
+    try:
+        intents = stripe.PaymentIntent.list(limit=limit)
+        result = []
+        for pi in intents.data:
+            meta = pi.get("metadata", {})
+            result.append({
+                "id": pi.id,
+                "amount": pi.amount / 100,
+                "currency": pi.currency.upper(),
+                "status": pi.status,
+                "username": meta.get("username", "—"),
+                "app_id": meta.get("app_id", "—"),
+                "type": meta.get("type", "—"),
+                "did_id": meta.get("did_id", ""),
+                "created": pi.created,
+            })
+        return result
+    except stripe.StripeError as e:
+        raise HTTPException(400, str(e))
 
 
 # ── Stripe webhook ─────────────────────────────────────────────────────────────

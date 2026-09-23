@@ -183,6 +183,19 @@ class WSMessage(BaseModel):
     data: Any
 
 
+# ── Voice Plans ────────────────────────────────────────────────────────────────
+
+class VoicePlan(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str                          # e.g. "Starter Pack"
+    minutes: int                       # e.g. 5, 20, 40
+    price: float                       # e.g. 2.50, 6.00, 12.00
+    validity_days: int = 30            # e.g. 30 days
+    description: Optional[str] = None # e.g. "5 mins calling, valid 30 days"
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 # ── DID Store / Subscription ───────────────────────────────────────────────────
 
 class Subscription(BaseModel):
