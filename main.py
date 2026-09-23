@@ -1879,6 +1879,7 @@ async def voice_plan_purchase_intent(plan_id: str, payload: dict = Depends(requi
         intent = stripe.PaymentIntent.create(
             amount=int(plan.price * 100),
             currency="usd",
+            receipt_email=user.email if user.email else None,
             metadata={
                 "username": username,
                 "plan_id": plan_id,
