@@ -1324,7 +1324,13 @@ async def agent_return(body: AgentLogin, payload: dict = Depends(require_any)):
 
 @app.get("/calls")
 async def list_calls(payload: dict = Depends(require_any)):
-    return [c.model_dump() for c in call_mgr.all_calls()]
+    username = payload.get("username")
+    role = payload.get("role", "user")
+    all_calls = [c.model_dump() for c in call_mgr.all_calls()]
+    # Non-admin users only see their own calls
+    if role != "superadmin":
+        all_calls = [c for c in all_calls if c.get("caller_username") == username]
+    return all_calls
 
 
 @app.get("/calls/{call_id}")
