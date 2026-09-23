@@ -11,3 +11,4 @@ nohup.out
 *.backup
 *.merged
 *_history.json
+.env
