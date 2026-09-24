@@ -12,6 +12,8 @@ import io
 import json
 import logging
 import os
+import time
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
 
@@ -457,6 +459,18 @@ async def lifespan(app: FastAPI):
     await esl.disconnect()
 
 
+# ── Simple in-memory rate limiter ──────────────────────────────────────────────
+_rate_buckets: Dict[str, list] = defaultdict(list)
+
+def _check_rate_limit(key: str, max_calls: int, window_seconds: int) -> bool:
+    now = time.time()
+    bucket = _rate_buckets[key]
+    _rate_buckets[key] = [t for t in bucket if now - t < window_seconds]
+    if len(_rate_buckets[key]) >= max_calls:
+        return False
+    _rate_buckets[key].append(now)
+    return True
+
 app = FastAPI(title="AI Predictive Dialer", version="1.0.0", lifespan=lifespan)
 
 # Allow Flutter web (localhost) and the mobile app to call the API
@@ -494,7 +508,10 @@ async def admin_page():
 # ── Auth endpoints ─────────────────────────────────────────────────────────────
 
 @app.post("/auth/login")
-async def auth_login(body: dict):
+async def auth_login(body: dict, request: Request):
+    client_ip = request.client.host if request.client else "unknown"
+    if not _check_rate_limit(f"login:{client_ip}", max_calls=10, window_seconds=60):
+        raise HTTPException(429, "Too many login attempts. Try again in a minute.")
     username = (body.get("username") or "").strip().lower()
     password = body.get("password") or ""
     user = users.get(username)
