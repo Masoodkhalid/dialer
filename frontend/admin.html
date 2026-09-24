@@ -598,6 +598,21 @@
       Payments
     </button>
 
+    <button class="adm-nav-item" id="nav-sip-status" onclick="showSection('sip-status',this)">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/>
+      </svg>
+      SIP Status
+    </button>
+
+    <div class="adm-nav-group">System</div>
+    <button class="adm-nav-item" id="nav-support" onclick="showSection('support',this)">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      </svg>
+      Support &amp; Diagnostics
+    </button>
+
     <div class="adm-nav-divider"></div>
     <button class="adm-nav-item" onclick="window.open('/','_blank')">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1098,6 +1113,131 @@
               <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>
             </tbody>
           </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════ SIP STATUS ══════════════════ -->
+    <section id="sec-sip-status" class="adm-section">
+      <div class="page-header">
+        <div>
+          <div class="page-title">SIP Status</div>
+          <div class="page-subtitle">Real-time SIP registration per user &amp; VoIP vendor configuration</div>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-ghost btn-sm" onclick="loadSipStatus()">↻ Refresh</button>
+        </div>
+      </div>
+
+      <!-- VoIP Config Card -->
+      <div class="adm-card" id="voip-config-card">
+        <div class="adm-card-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          VoIP Vendor / FreeSWITCH Configuration
+        </div>
+        <div id="voip-config-body" style="font-size:13px;color:var(--muted)">Loading…</div>
+      </div>
+
+      <!-- SIP Users Table -->
+      <div class="adm-card">
+        <div class="adm-card-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49"/></svg>
+          User SIP Registration
+          <span id="sip-count" style="margin-left:6px;font-size:10px;color:var(--muted);font-weight:500;background:var(--surface2);border:1px solid var(--border);padding:1px 8px;border-radius:99px"></span>
+          <div style="margin-left:auto;display:flex;gap:6px">
+            <span id="sip-registered-count" style="font-size:11px;font-weight:700;color:var(--green);padding:2px 10px;border-radius:99px;background:var(--green-soft);border:1px solid rgba(5,150,105,.2)">— Registered</span>
+            <span id="sip-offline-count" style="font-size:11px;font-weight:700;color:var(--red);padding:2px 10px;border-radius:99px;background:var(--red-soft);border:1px solid rgba(220,38,38,.2)">— Offline</span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Username</th><th>App</th><th>Extension</th><th>SIP Status</th><th>Role</th></tr>
+            </thead>
+            <tbody id="sip-tbody">
+              <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════ SUPPORT & DIAGNOSTICS ══════════════════ -->
+    <section id="sec-support" class="adm-section">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Support &amp; Diagnostics</div>
+          <div class="page-subtitle">Server health, FreeSWITCH status &amp; troubleshooting checklist for support team</div>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-ghost btn-sm" onclick="loadSupport()">↻ Refresh</button>
+        </div>
+      </div>
+
+      <!-- Health Cards -->
+      <div class="kpi-grid" id="health-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr))">
+        <div class="kpi-card"><div class="kpi-val" id="h-esl">—</div><div class="kpi-lbl">FreeSWITCH ESL</div></div>
+        <div class="kpi-card"><div class="kpi-val" id="h-sip">—</div><div class="kpi-lbl">SIP Profile</div></div>
+        <div class="kpi-card kpi-blue"><div class="kpi-val" id="h-calls">—</div><div class="kpi-lbl">Active Calls (FS)</div></div>
+        <div class="kpi-card kpi-amber"><div class="kpi-val" id="h-cpu">—</div><div class="kpi-lbl">CPU Usage</div></div>
+        <div class="kpi-card"><div class="kpi-val" id="h-mem">—</div><div class="kpi-lbl">RAM Used</div></div>
+        <div class="kpi-card"><div class="kpi-val" id="h-disk">—</div><div class="kpi-lbl">Disk Used</div></div>
+      </div>
+
+      <!-- Server Info -->
+      <div class="adm-card">
+        <div class="adm-card-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+          Server Info
+        </div>
+        <div id="server-info-body" style="font-size:13px;color:var(--muted)">Loading…</div>
+      </div>
+
+      <!-- Troubleshooting Checklist -->
+      <div class="adm-card">
+        <div class="adm-card-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          Troubleshooting Checklist (for Support Team)
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;font-size:13px">
+          <div style="background:var(--red-soft);border:1px solid rgba(220,38,38,.2);border-radius:10px;padding:14px 16px">
+            <div style="font-weight:800;color:var(--red);margin-bottom:8px">🔴 App shows error / can't login</div>
+            <ul style="color:var(--text2);padding-left:18px;line-height:2">
+              <li>Check server is running: <code style="background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:11px">systemctl status dialer</code></li>
+              <li>If stopped: <code style="background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:11px">systemctl restart dialer</code></li>
+              <li>Check logs: <code style="background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:11px">journalctl -u dialer -n 50</code></li>
+              <li>Verify API is responding: <code style="background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:11px">curl http://142.132.225.239:8000/health</code></li>
+            </ul>
+          </div>
+          <div style="background:var(--amber-soft);border:1px solid rgba(217,119,6,.2);border-radius:10px;padding:14px 16px">
+            <div style="font-weight:800;color:var(--amber);margin-bottom:8px">🟡 SIP not registering / calls not connecting</div>
+            <ul style="color:var(--text2);padding-left:18px;line-height:2">
+              <li>Check FreeSWITCH is running: <code style="background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:11px">systemctl status freeswitch</code></li>
+              <li>Check SIP profiles: <code style="background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:11px">fs_cli -x "sofia status"</code></li>
+              <li>Check registrations: <code style="background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:11px">fs_cli -x "sofia status profile internal reg"</code></li>
+              <li>Restart SIP profile: <code style="background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:11px">fs_cli -x "sofia profile internal restart"</code></li>
+              <li>Check SIP port 5060 is open: <code style="background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:11px">ufw status</code></li>
+            </ul>
+          </div>
+          <div style="background:var(--blue-soft);border:1px solid rgba(37,99,235,.2);border-radius:10px;padding:14px 16px">
+            <div style="font-weight:800;color:var(--blue);margin-bottom:8px">🔵 User can't make calls (but SIP registered)</div>
+            <ul style="color:var(--text2);padding-left:18px;line-height:2">
+              <li>Check user has an active subscription (Subscribers tab)</li>
+              <li>Check user has minutes remaining</li>
+              <li>Check DID is assigned to the user</li>
+              <li>Check FreeSWITCH dialplan: <code style="background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:11px">fs_cli -x "show calls"</code></li>
+            </ul>
+          </div>
+          <div style="background:var(--green-soft);border:1px solid rgba(5,150,105,.2);border-radius:10px;padding:14px 16px">
+            <div style="font-weight:800;color:var(--green);margin-bottom:8px">🟢 Quick Server Commands (SSH as root)</div>
+            <ul style="color:var(--text2);padding-left:18px;line-height:2">
+              <li>Restart API: <code style="background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:11px">systemctl restart dialer</code></li>
+              <li>Restart FreeSWITCH: <code style="background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:11px">systemctl restart freeswitch</code></li>
+              <li>View live logs: <code style="background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:11px">journalctl -u dialer -f</code></li>
+              <li>Update API from git: <code style="background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:11px">cd ~/dialer && git pull && systemctl restart dialer</code></li>
+              <li>Server IP: <strong>142.132.225.239</strong> &nbsp;|&nbsp; API Port: <strong>8000</strong> &nbsp;|&nbsp; SIP Port: <strong>5060</strong></li>
+            </ul>
+          </div>
         </div>
       </div>
     </section>

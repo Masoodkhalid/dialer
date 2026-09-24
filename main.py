@@ -2093,3 +2093,103 @@ async def stripe_webhook(request: Request):
 async def stripe_publishable_key():
     """Return the Stripe publishable key for the Flutter app."""
     return {"publishable_key": settings.STRIPE_PUBLISHABLE_KEY}
+
+
+# ── SIP Status & VoIP Config ──────────────────────────────────────────────────
+
+@app.get("/admin/sip-status")
+async def admin_sip_status(payload: dict = Depends(require_admin)):
+    """Return all users with their SIP extension and live registration status from FreeSWITCH."""
+    # Query FreeSWITCH for registered endpoints
+    registered_extensions: set = set()
+    try:
+        raw = await esl.api("sofia status profile internal reg")
+        # Each registered line contains the extension/user
+        for line in (raw or "").splitlines():
+            # Lines look like: 1001@domain ... REGISTERED
+            if "REGISTERED" in line or "Registered" in line:
+                part = line.strip().split("@")[0].split()[-1]
+                registered_extensions.add(part.strip())
+    except Exception:
+        pass  # ESL may not be connected; show all as unknown
+
+    rows = []
+    for u in users.values():
+        ext = str(u.extension) if getattr(u, "extension", None) else None
+        sip_status = "unknown"
+        if ext:
+            sip_status = "registered" if ext in registered_extensions else "offline"
+        rows.append({
+            "username":   u.username,
+            "extension":  ext,
+            "sip_status": sip_status,
+            "role":       getattr(u, "role", "user"),
+            "app_id":     getattr(u, "app_id", None) or "default",
+        })
+    return {
+        "users": rows,
+        "voip": {
+            "host":       settings.FS_HOST,
+            "sip_domain": settings.FS_SIP_DOMAIN or settings.FS_HOST,
+            "esl_port":   settings.FS_PORT,
+            "ws_url":     settings.FS_WS_URL or f"ws://{settings.FS_HOST}:5066",
+            "ws_url_mobile": settings.FS_WS_URL_MOBILE or settings.FS_WS_URL or f"ws://{settings.FS_HOST}:5066",
+        }
+    }
+
+
+@app.get("/admin/server-health")
+async def admin_server_health(payload: dict = Depends(require_admin)):
+    """Return server and FreeSWITCH health info for the support team."""
+    import subprocess, time, psutil
+
+    # ESL connectivity
+    esl_ok = False
+    esl_version = ""
+    try:
+        ver = await esl.api("version")
+        esl_ok = bool(ver)
+        esl_version = (ver or "").strip().split("\n")[0]
+    except Exception:
+        pass
+
+    # Active calls in FreeSWITCH
+    active_calls_fs = 0
+    try:
+        raw = await esl.api("show calls count")
+        for line in (raw or "").splitlines():
+            if "total" in line.lower():
+                active_calls_fs = int("".join(filter(str.isdigit, line)) or 0)
+                break
+    except Exception:
+        pass
+
+    # SIP profile status
+    sip_profile_ok = False
+    try:
+        sp = await esl.api("sofia status")
+        sip_profile_ok = "RUNNING" in (sp or "")
+    except Exception:
+        pass
+
+    # System stats
+    cpu = psutil.cpu_percent(interval=0.5)
+    mem = psutil.virtual_memory()
+    disk = psutil.disk_usage("/")
+
+    return {
+        "esl_connected":    esl_ok,
+        "esl_version":      esl_version,
+        "sip_profile_ok":   sip_profile_ok,
+        "active_calls_fs":  active_calls_fs,
+        "active_calls_api": len([c for c in call_mgr.all_calls() if c.status in ("dialing","answered","bridged")]),
+        "total_users":      len(users),
+        "total_dids":       len(dids),
+        "cpu_percent":      cpu,
+        "mem_used_gb":      round(mem.used / 1024**3, 2),
+        "mem_total_gb":     round(mem.total / 1024**3, 2),
+        "disk_used_gb":     round(disk.used / 1024**3, 2),
+        "disk_total_gb":    round(disk.total / 1024**3, 2),
+        "server_ip":        settings.FS_HOST,
+        "api_port":         8000,
+    }

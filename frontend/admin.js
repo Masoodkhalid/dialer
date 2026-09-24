@@ -100,6 +100,8 @@ function showSection(name, btn) {
   if (name === 'apps')        loadApps();
   if (name === 'payments')    loadPayments();
   if (name === 'voice-plans') loadVoicePlans();
+  if (name === 'sip-status')  loadSipStatus();
+  if (name === 'support')     loadSupport();
 }
 
 // ── API helper ─────────────────────────────────────────────────────────────────
@@ -1144,6 +1146,119 @@ function _renderPayments(payments) {
       <td style="font-size:11px;color:var(--muted)">${p.id}</td>
     </tr>`;
   }).join('');
+}
+
+// ── SIP Status ─────────────────────────────────────────────────────────────────
+async function loadSipStatus() {
+  document.getElementById('sip-tbody').innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>';
+  try {
+    const data = await api('GET', '/admin/sip-status');
+    const users = data.users || [];
+    const voip  = data.voip  || {};
+
+    // VoIP config card
+    document.getElementById('voip-config-body').innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:4px">FreeSWITCH Host / VoIP IP</div>
+          <div style="font-size:16px;font-weight:800;color:var(--indigo)">${voip.host || '—'}</div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:4px">SIP Domain</div>
+          <div style="font-size:16px;font-weight:800;color:var(--text)">${voip.sip_domain || '—'}</div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:4px">WS URL (Web)</div>
+          <div style="font-size:12px;font-weight:600;color:var(--text2);word-break:break-all">${voip.ws_url || '—'}</div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:4px">WS URL (Mobile)</div>
+          <div style="font-size:12px;font-weight:600;color:var(--text2);word-break:break-all">${voip.ws_url_mobile || '—'}</div>
+        </div>
+      </div>
+      <div style="margin-top:10px;font-size:11px;color:var(--muted)">To switch VoIP vendor, update <code>FS_HOST</code>, <code>FS_SIP_DOMAIN</code>, and <code>FS_WS_URL</code> in the <code>.env</code> file on the server and restart the dialer service.</div>
+    `;
+
+    // Count registered vs offline
+    const registered = users.filter(u => u.sip_status === 'registered').length;
+    const offline    = users.filter(u => u.sip_status === 'offline').length;
+    document.getElementById('sip-count').textContent = `${users.length} users`;
+    document.getElementById('sip-registered-count').textContent = `${registered} Registered`;
+    document.getElementById('sip-offline-count').textContent = `${offline} Offline`;
+
+    const tbody = document.getElementById('sip-tbody');
+    if (!users.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">No users found</td></tr>';
+      return;
+    }
+    tbody.innerHTML = users.map(u => {
+      const statusBadge = u.sip_status === 'registered'
+        ? `<span class="badge badge-active">Registered</span>`
+        : u.sip_status === 'offline'
+        ? `<span class="badge badge-cancelled">Offline</span>`
+        : `<span class="badge badge-none">Unknown</span>`;
+      return `<tr>
+        <td style="font-weight:600">${u.username}</td>
+        <td><span class="badge-app">${u.app_id || 'default'}</span></td>
+        <td style="font-family:monospace;font-weight:700">${u.extension || '—'}</td>
+        <td>${statusBadge}</td>
+        <td style="text-transform:capitalize;color:var(--muted)">${u.role}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    document.getElementById('sip-tbody').innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--red);padding:24px">Error: ${e.message}</td></tr>`;
+  }
+}
+
+// ── Support & Diagnostics ──────────────────────────────────────────────────────
+async function loadSupport() {
+  try {
+    const h = await api('GET', '/admin/server-health');
+
+    const eslEl = document.getElementById('h-esl');
+    eslEl.textContent = h.esl_connected ? '✓ OK' : '✗ Down';
+    eslEl.closest('.kpi-card').className = `kpi-card ${h.esl_connected ? 'kpi-green' : 'kpi-red'}`;
+
+    const sipEl = document.getElementById('h-sip');
+    sipEl.textContent = h.sip_profile_ok ? '✓ Running' : '✗ Down';
+    sipEl.closest('.kpi-card').className = `kpi-card ${h.sip_profile_ok ? 'kpi-green' : 'kpi-red'}`;
+
+    document.getElementById('h-calls').textContent = h.active_calls_fs;
+    document.getElementById('h-cpu').textContent   = `${h.cpu_percent}%`;
+    document.getElementById('h-mem').textContent   = `${h.mem_used_gb}/${h.mem_total_gb} GB`;
+    document.getElementById('h-disk').textContent  = `${h.disk_used_gb}/${h.disk_total_gb} GB`;
+
+    document.getElementById('server-info-body').innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:4px">Server IP</div>
+          <div style="font-size:16px;font-weight:800;color:var(--indigo)">${h.server_ip}</div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:4px">API Port</div>
+          <div style="font-size:16px;font-weight:800;color:var(--text)">${h.api_port}</div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:4px">Total Users</div>
+          <div style="font-size:16px;font-weight:800;color:var(--text)">${h.total_users}</div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:4px">Total DIDs</div>
+          <div style="font-size:16px;font-weight:800;color:var(--text)">${h.total_dids}</div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:4px">FreeSWITCH Version</div>
+          <div style="font-size:12px;font-weight:600;color:var(--text2)">${h.esl_version || 'N/A'}</div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:4px">Active Calls (API)</div>
+          <div style="font-size:16px;font-weight:800;color:var(--text)">${h.active_calls_api}</div>
+        </div>
+      </div>
+    `;
+  } catch (e) {
+    document.getElementById('server-info-body').innerHTML = `<span style="color:var(--red)">Error loading health: ${e.message}</span>`;
+  }
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────────
