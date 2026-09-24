@@ -1160,8 +1160,8 @@ async function loadSipStatus() {
     document.getElementById('voip-config-body').innerHTML = `
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
         <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px">
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:4px">FreeSWITCH Host / VoIP IP</div>
-          <div style="font-size:16px;font-weight:800;color:var(--indigo)">${voip.host || '—'}</div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:4px">VoIP / SIP Server IP</div>
+          <div style="font-size:16px;font-weight:800;color:var(--indigo)">${voip.voip_ip || voip.sip_domain || '—'}</div>
         </div>
         <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px">
           <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:4px">SIP Domain</div>
@@ -1175,6 +1175,19 @@ async function loadSipStatus() {
           <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:4px">WS URL (Mobile)</div>
           <div style="font-size:12px;font-weight:600;color:var(--text2);word-break:break-all">${voip.ws_url_mobile || '—'}</div>
         </div>
+      </div>
+      ${(voip.gateways||[]).map(gw => {
+        const label = gw.name === 'telcastc' ? 'Telcast Outbound Gateway' : gw.name === 'did_provider' ? 'Telcast DID Provider' : gw.name;
+        const isUp = gw.status === 'up';
+        return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:4px">${label}</div>
+          <div style="font-size:14px;font-weight:800;color:var(--text);margin-bottom:4px">${gw.ip || '—'}</div>
+          <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;${isUp ? 'color:var(--green);background:var(--green-soft);border:1px solid rgba(5,150,105,.2)' : 'color:var(--red);background:var(--red-soft);border:1px solid rgba(220,38,38,.2)'}">
+            ${isUp ? '● UP' : '● DOWN'}
+          </span>
+          <span style="font-size:10px;color:var(--muted);margin-left:8px">IN: ${gw.calls_in} · OUT: ${gw.calls_out}</span>
+        </div>`;
+      }).join('')}
       </div>
       <div style="margin-top:10px;font-size:11px;color:var(--muted)">To switch VoIP vendor, update <code>FS_HOST</code>, <code>FS_SIP_DOMAIN</code>, and <code>FS_WS_URL</code> in the <code>.env</code> file on the server and restart the dialer service.</div>
     `;
@@ -1193,15 +1206,18 @@ async function loadSipStatus() {
     }
     tbody.innerHTML = users.map(u => {
       const statusBadge = u.sip_status === 'registered'
-        ? `<span class="badge badge-active">Registered</span>`
+        ? `<span class="badge badge-active">Online</span>`
         : u.sip_status === 'offline'
         ? `<span class="badge badge-cancelled">Offline</span>`
         : `<span class="badge badge-none">Unknown</span>`;
+      const agentDetail = u.agent_status && u.agent_status !== 'offline' && u.agent_status !== 'unknown'
+        ? `<span style="font-size:10px;color:var(--muted);margin-left:6px;text-transform:capitalize">(${u.agent_status.replace('_',' ')})</span>`
+        : '';
       return `<tr>
         <td style="font-weight:600">${u.username}</td>
         <td><span class="badge-app">${u.app_id || 'default'}</span></td>
         <td style="font-family:monospace;font-weight:700">${u.extension || '—'}</td>
-        <td>${statusBadge}</td>
+        <td>${statusBadge}${agentDetail}</td>
         <td style="text-transform:capitalize;color:var(--muted)">${u.role}</td>
       </tr>`;
     }).join('');

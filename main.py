@@ -2099,41 +2099,65 @@ async def stripe_publishable_key():
 
 @app.get("/admin/sip-status")
 async def admin_sip_status(payload: dict = Depends(require_admin)):
-    """Return all users with their SIP extension and live registration status from FreeSWITCH."""
-    # Query FreeSWITCH for registered endpoints
-    registered_extensions: set = set()
-    try:
-        raw = await esl.api("sofia status profile internal reg")
-        # Each registered line contains the extension/user
-        for line in (raw or "").splitlines():
-            # Lines look like: 1001@domain ... REGISTERED
-            if "REGISTERED" in line or "Registered" in line:
-                part = line.strip().split("@")[0].split()[-1]
-                registered_extensions.add(part.strip())
-    except Exception:
-        pass  # ESL may not be connected; show all as unknown
+    """Return all users with their SIP extension and live status based on agent login state."""
+    # Build a map of extension -> agent status from the agent manager
+    # An agent is "online" (SIP active) when their status is anything except OFFLINE
+    agent_by_ext: dict = {}
+    for agent in agent_mgr.list_all():
+        if agent.extension:
+            agent_by_ext[str(agent.extension)] = agent.status
 
     rows = []
     for u in users.values():
         ext = str(u.extension) if getattr(u, "extension", None) else None
-        sip_status = "unknown"
-        if ext:
-            sip_status = "registered" if ext in registered_extensions else "offline"
+        if not ext:
+            sip_status = "unknown"
+            agent_status = None
+        else:
+            agent_status = str(agent_by_ext.get(ext, "offline"))
+            sip_status = "offline" if agent_status == "offline" else "registered"
+
         rows.append({
-            "username":   u.username,
-            "extension":  ext,
-            "sip_status": sip_status,
-            "role":       getattr(u, "role", "user"),
-            "app_id":     getattr(u, "app_id", None) or "default",
+            "username":     u.username,
+            "extension":    ext,
+            "sip_status":   sip_status,
+            "agent_status": agent_status,
+            "role":         getattr(u, "role", "user"),
+            "app_id":       getattr(u, "app_id", None) or "default",
         })
+
+    voip_ip = settings.FS_SIP_DOMAIN or settings.FS_HOST
+
+    # Fetch gateway status from FreeSWITCH
+    gateways = []
+    for gw_name in ("telcastc", "did_provider"):
+        gw_info = {"name": gw_name, "status": "unknown", "ip": "", "calls_out": 0, "calls_in": 0}
+        try:
+            raw = await esl.api(f"sofia status gateway {gw_name}")
+            for line in (raw or "").splitlines():
+                line = line.strip()
+                if line.startswith("Realm"):
+                    gw_info["ip"] = line.split()[-1]
+                elif line.startswith("Status"):
+                    gw_info["status"] = line.split()[-1].lower()
+                elif line.startswith("CallsOUT"):
+                    gw_info["calls_out"] = int(line.split()[-1] or 0)
+                elif line.startswith("CallsIN"):
+                    gw_info["calls_in"] = int(line.split()[-1] or 0)
+        except Exception:
+            pass
+        gateways.append(gw_info)
+
     return {
         "users": rows,
         "voip": {
-            "host":       settings.FS_HOST,
-            "sip_domain": settings.FS_SIP_DOMAIN or settings.FS_HOST,
-            "esl_port":   settings.FS_PORT,
-            "ws_url":     settings.FS_WS_URL or f"ws://{settings.FS_HOST}:5066",
-            "ws_url_mobile": settings.FS_WS_URL_MOBILE or settings.FS_WS_URL or f"ws://{settings.FS_HOST}:5066",
+            "host":          settings.FS_HOST,
+            "voip_ip":       voip_ip,
+            "sip_domain":    voip_ip,
+            "esl_port":      settings.FS_PORT,
+            "ws_url":        settings.FS_WS_URL or f"wss://{voip_ip}:7443",
+            "ws_url_mobile": settings.FS_WS_URL_MOBILE or settings.FS_WS_URL or f"ws://{voip_ip}:5066",
+            "gateways":      gateways,
         }
     }
 
