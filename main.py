@@ -1902,15 +1902,21 @@ async def voice_plan_purchase_intent(plan_id: str, body: dict = Body(default={})
         # Use email from request body first, fall back to stored user email
         email = body.get("email") or user.email or None
 
-        # Find or create a Stripe Customer so details show on Incomplete payments
+        # Find or create a Stripe Customer — reuse existing customer by email to avoid duplicates
         customer_id = getattr(user, 'stripe_customer_id', None)
         if not customer_id:
-            customer_kwargs = {"metadata": {"username": username, "app_id": user.app_id or ""}}
+            # Search Stripe by email first to reuse any existing customer
             if email:
-                customer_kwargs["email"] = email
-                customer_kwargs["name"] = username
-            customer = stripe.Customer.create(**customer_kwargs)
-            customer_id = customer.id
+                existing = stripe.Customer.search(query=f'email:"{email}"', limit=1)
+                if existing.data:
+                    customer_id = existing.data[0].id
+            if not customer_id:
+                customer_kwargs = {"metadata": {"username": username, "app_id": user.app_id or ""}}
+                if email:
+                    customer_kwargs["email"] = email
+                    customer_kwargs["name"] = username
+                customer = stripe.Customer.create(**customer_kwargs)
+                customer_id = customer.id
             user.stripe_customer_id = customer_id
             _save()
 
